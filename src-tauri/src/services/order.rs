@@ -1367,24 +1367,114 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
         variant_name = Some(v.get::<String, _>("name"));
     }
 
+    // ★ 選項要真的是**這個品項提供的**。
+    //
+    //   只檢查「這個選項存在而且沒停用」是不夠的：那樣就可以把「加珍珠」
+    //   掛到滷肉飯上。今天唯一的呼叫端是收銀機，所以不構成漏洞；但 v1.3 的
+    //   掃碼點餐會把下單這條路開到客人的手機上，而那時再補會是一個
+    //   「已經有人這樣點過了」的補。
+    //
+    //   價格一律由伺服器決定、組合也一律由伺服器驗 —— 這是同一條原則。
     let mut modifiers = Vec::new();
     for mid in &l.modifier_ids {
         let m = sqlx::query(
-            "SELECT m.id, m.name, m.price, g.name AS group_name
+            "SELECT m.id, m.name, m.price, m.group_id, g.name AS group_name,
+                    g.selection_type,
+                    EXISTS(SELECT 1 FROM item_modifier_groups img
+                            WHERE img.item_id = ?2 AND img.group_id = m.group_id) AS offered
                FROM modifiers m JOIN modifier_groups g ON g.id = m.group_id
-              WHERE m.id = ?1 AND m.deleted_at IS NULL AND m.is_active = 1",
+              WHERE m.id = ?1 AND m.deleted_at IS NULL AND m.is_active = 1
+                AND g.deleted_at IS NULL",
         )
         .bind(mid)
+        .bind(&l.item_id)
         .fetch_optional(uow.conn())
         .await?
         .ok_or_else(|| AppError::NotFound("這個選項已經停用了".into()))?;
+
+        if m.get::<i64, _>("offered") == 0 {
+            return Err(AppError::Validation(format!(
+                "「{}」沒有提供「{}」這個選項。請重新整理菜單再試一次。",
+                r.get::<String, _>("name"),
+                m.get::<String, _>("name")
+            )));
+        }
         modifiers.push((
             m.get::<String, _>("id"),
             m.get::<String, _>("group_name"),
             m.get::<String, _>("name"),
             m.get::<i64, _>("price"),
+            m.get::<String, _>("group_id"),
+            m.get::<String, _>("selection_type"),
         ));
     }
+
+    // 必選的群組沒選到時的處理，刻意分成兩種：
+    //
+    // * 這一組**有預設**（正常糖、正常冰）→ 用店家自己寫下來的那個答案。
+    //   伺服器沒有在猜 —— 它用的是店家設定的預設值，跟收銀機畫面預先勾起來的
+    //   是同一個。這樣任何程式化的呼叫端（匯入、外送平台、之後的掃碼點餐）
+    //   都不必知道每一組的預設是什麼。
+    // * 這一組**沒有預設** → 擋下來。店家從來沒說過「標準」是什麼，
+    //   那就沒有人猜得出來，而猜錯要重做一杯。
+    //
+    // 單選群組被塞了兩個一律擋 —— 那不是「忘了選」，是不可能成立的組合。
+    let required = sqlx::query(
+        "SELECT g.id, g.name, g.selection_type, COALESCE(img.min_select, g.min_select) AS min_select
+           FROM item_modifier_groups img
+           JOIN modifier_groups g ON g.id = img.group_id AND g.deleted_at IS NULL
+          WHERE img.item_id = ?1
+          ORDER BY img.sort_order",
+    )
+    .bind(&l.item_id)
+    .fetch_all(uow.conn())
+    .await?;
+    for g in &required {
+        let gid: String = g.get("id");
+        let picked = modifiers.iter().filter(|m| m.4 == gid).count() as i64;
+
+        if g.get::<String, _>("selection_type") == "single" && picked > 1 {
+            return Err(AppError::Validation(format!(
+                "「{}」只能選一個。",
+                g.get::<String, _>("name")
+            )));
+        }
+
+        let min: i64 = g.get("min_select");
+        if picked >= min {
+            continue;
+        }
+        let fallback = sqlx::query(
+            "SELECT id, name, price FROM modifiers
+              WHERE group_id = ?1 AND is_default = 1 AND is_active = 1 AND deleted_at IS NULL
+              ORDER BY sort_order LIMIT 1",
+        )
+        .bind(&gid)
+        .fetch_optional(uow.conn())
+        .await?;
+        match fallback {
+            Some(d) => modifiers.push((
+                d.get::<String, _>("id"),
+                g.get::<String, _>("name"),
+                d.get::<String, _>("name"),
+                d.get::<i64, _>("price"),
+                gid,
+                "single".to_string(),
+            )),
+            None => {
+                return Err(AppError::Validation(format!(
+                    "「{}」要選「{}」。",
+                    r.get::<String, _>("name"),
+                    g.get::<String, _>("name")
+                )))
+            }
+        }
+    }
+
+    let modifiers: Vec<(String, String, String, i64)> = modifiers
+        .into_iter()
+        .map(|(id, group, name, price, _, _)| (id, group, name, price))
+        .collect();
 
     Ok(ResolvedLine {
         name: r.get("name"),
