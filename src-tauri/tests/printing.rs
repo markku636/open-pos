@@ -452,6 +452,22 @@ async fn the_customer_receipt_carries_the_numbers_that_must_match_the_invoice() 
     // 未稅與稅額是發票上要對的兩個數字，收據上必須看得到。
     assert!(out.contains("稅"), "\n{out}");
 
+    // ★ 收據上這三個數字必須自己對得起來：合計 110、現金 200、找零 90。
+    //   印成「現金 110 / 找零 90」的話，客人會當場問，而店員解釋不出來。
+    let cash_line = out
+        .lines()
+        .find(|l| l.contains("現金"))
+        .expect("收據上沒有付款方式");
+    assert!(
+        cash_line.contains("200"),
+        "現金那一行要印客人給了多少，不是沖銷了多少：{cash_line}"
+    );
+    let change_line = out
+        .lines()
+        .find(|l| l.contains("找零"))
+        .expect("收據上沒有找零");
+    assert!(change_line.contains("90"), "{change_line}");
+
     e.ctx.db.close().await;
 }
 

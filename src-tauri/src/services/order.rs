@@ -1410,16 +1410,26 @@ async fn enqueue_receipt(
     let mut data = build_ticket_data(uow, store, order_id, TicketReason::Settle, now, None).await?;
     data.change = change;
     let payments = sqlx::query(
-        "SELECT method_name_snapshot, amount FROM payments WHERE order_id = ?1 ORDER BY id",
+        "SELECT method_name_snapshot, amount, tendered
+           FROM payments WHERE order_id = ?1 ORDER BY id",
     )
     .bind(order_id)
     .fetch_all(uow.conn())
     .await?;
     data.payments = payments
         .iter()
-        .map(|p| crate::receipt::templates::PaymentLine {
-            method: p.get("method_name_snapshot"),
-            amount: p.get("amount"),
+        .map(|p| {
+            let amount: i64 = p.get("amount");
+            let tendered: i64 = p.get("tendered");
+            crate::receipt::templates::PaymentLine {
+                method: p.get("method_name_snapshot"),
+                // ★ 印客人**給了多少**，不是沖銷了多少。
+                //
+                //   「現金 95 / 找零 5」在算術上是錯的：客人給的是 100。
+                //   收據上這三個數字必須自己對得起來（合計 95、現金 100、找零 5），
+                //   否則客人會當場問，而店員也解釋不出來。
+                amount: if tendered > amount { tendered } else { amount },
+            }
         })
         .collect();
 
