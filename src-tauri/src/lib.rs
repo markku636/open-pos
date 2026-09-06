@@ -229,6 +229,8 @@ pub fn run() {
             commands::reprint_receipt,
             commands::audit_query,
             commands::insight,
+            #[cfg(feature = "server")]
+            commands::lan_status,
             commands::get_order,
             commands::list_open_orders,
             commands::payment_methods,

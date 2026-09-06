@@ -914,3 +914,34 @@ export const insightApi = {
   query: (query: { from?: string | null; to?: string | null }) =>
     transport.call<Insight>('insight', { query }),
 }
+
+// ---------------------------------------------------------------- 區網
+
+export interface NetInterface {
+  name: string
+  ip: string
+  /** 這一張是不是挑來當區網位址的那一張。 */
+  chosen: boolean
+  usable: boolean
+  note: string | null
+}
+
+export interface LanStatus {
+  port: number
+  ip: string | null
+  /** 廚房平板要開的網址。 */
+  kdsUrl: string | null
+  orderUrl: string | null
+  /** server 真的綁在區網介面上。**這不等於防火牆有放行。** */
+  bound: boolean
+  detail: string
+  interfaces: NetInterface[]
+  previousIp: string | null
+  /** IP 換過了 —— 桌卡 QR 全部要重印。 */
+  ipChanged: boolean
+  firewallCommand: string
+}
+
+export const lanApi = {
+  status: () => transport.call<LanStatus>('lan_status'),
+}

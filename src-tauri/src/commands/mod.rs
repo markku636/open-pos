@@ -22,9 +22,20 @@ pub async fn health(ctx: State<'_, Ctx>) -> AppResult<services::app::Health> {
 
 /// 區網連線資訊。收銀機要把它顯示出來（並印進桌卡 QR），
 /// 店員才知道要在平板上輸入什麼。
+///
+/// 沒有 `server` feature 就沒有區網可言，所以回 None 而不是編譯失敗 ——
+/// feature 表上寫著 gui 與 server 各自獨立，那就要真的獨立。
 #[tauri::command]
 pub fn lan_info(port: u16) -> Option<String> {
-    crate::lan::lan_base_url(port)
+    #[cfg(feature = "server")]
+    {
+        crate::lan::lan_base_url(port)
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = port;
+        None
+    }
 }
 
 /// 用系統預設瀏覽器開啟外部連結。
@@ -481,4 +492,14 @@ pub async fn insight(
     query: services::analytics::InsightQuery,
 ) -> AppResult<services::analytics::Insight> {
     services::analytics::insight(&ctx, query).await
+}
+
+/// 區網連線狀態：平板要開的網址、候選網卡、IP 有沒有換過。
+///
+/// 裝機第一天的頭號故障就是「平板連不上收銀機」，而三個成因（防火牆按了取消、
+/// 路由器重開換了 IP、多網卡挑錯）都不會出現在任何錯誤訊息裡。
+#[cfg(feature = "server")]
+#[tauri::command]
+pub async fn lan_status(ctx: State<'_, Ctx>) -> AppResult<services::network::LanStatus> {
+    services::network::lan_status(&ctx, crate::lan::DEFAULT_PORT).await
 }

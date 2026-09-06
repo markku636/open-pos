@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import AboutDialog from './AboutDialog'
 import BackupPanel from './BackupPanel'
 import BillsPanel from './BillsPanel'
+import LanPanel from './LanPanel'
 import MenuManager from './MenuManager'
 import OrderScreen, { type Seat } from './OrderScreen'
 import TableMap from './TableMap'
@@ -169,7 +170,7 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
   }, [])
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
           版本
@@ -204,7 +205,18 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
           <li>● 出單機（ESC/POS 網路型）：可以用了</li>
           <li>● 班別交接與日結：可以用了</li>
           <li>● 備份與還原：可以用了</li>
+          <li>● 桌位、分帳、退款：可以用了</li>
+          <li>● KDS 廚房顯示（含斷線佇列）：可以用了</li>
+          <li>● 營運分析與稽核查詢：可以用了</li>
         </ul>
+      </section>
+
+      {/* 區網放在診斷之前：裝機第一天會用到的是它，而診斷是事後才需要的。 */}
+      <section>
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          區網連線（廚房平板）
+        </h2>
+        <LanPanel />
       </section>
 
       <section>
