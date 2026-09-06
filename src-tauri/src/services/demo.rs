@@ -98,12 +98,41 @@ const MENU: &[DemoCategory] = &[
     },
 ];
 
+/// 示範用的桌位。兩個區域是刻意的 —— 一個區域看不出分區長什麼樣子。
+const DEMO_TABLES: [&str; 6] = ["A1", "A2", "A3", "A4", "B1", "B2"];
+
 /// 示範菜單有多大：（分類數, 品項數）。
 ///
 /// 給啟動訊息用。**不要在別處手寫這兩個數字** —— 訊息與實際內容一旦對不上，
 /// 使用者就會開始懷疑其他訊息是不是也在唬爛。
 pub fn demo_menu_size() -> (usize, usize) {
     (MENU.len(), MENU.iter().map(|c| c.items.len()).sum())
+}
+
+/// 種示範資料的結果。
+///
+/// 帶著數量回去是為了讓畫面能說「建了 6 個分類、31 個品項」而不是
+/// 一句「完成」—— 使用者要能一眼確認**東西真的進去了**。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoResult {
+    /// false = 已經有商品，什麼都沒動。
+    pub created: bool,
+    pub categories: usize,
+    pub items: usize,
+    pub tables: usize,
+}
+
+/// 建一份示範菜單（給 UI 用的包裝）。
+pub async fn seed_demo(ctx: &Ctx) -> AppResult<DemoResult> {
+    let created = seed_demo_menu(ctx).await?;
+    let (categories, items) = demo_menu_size();
+    Ok(DemoResult {
+        created,
+        categories,
+        items,
+        tables: DEMO_TABLES.len(),
+    })
 }
 
 /// 建一份示範菜單。已經有商品就不動任何東西，回傳 false。
@@ -116,7 +145,7 @@ pub async fn seed_demo_menu(ctx: &Ctx) -> AppResult<bool> {
     }
 
     // 幾張桌子。沒有桌位的話「內用」在畫面上就只是一個沒有用的按鈕。
-    for code in ["A1", "A2", "A3", "A4", "B1", "B2"] {
+    for code in DEMO_TABLES {
         crate::services::table::upsert_table(
             ctx,
             crate::services::table::TableInput {

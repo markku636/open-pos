@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import DiscountDialog from './DiscountDialog'
 import PaymentPanel from './PaymentPanel'
 import {
+  demoApi,
   discountApi,
   menuApi,
   orderApi,
@@ -62,6 +63,10 @@ export default function OrderScreen({
       // 離開桌位時把那一桌的單也從畫面上收走。留著它的話，下一筆外帶的
       // 第一個品項會被加到剛剛那一桌上 —— 而畫面上完全看不出來。
       setOrder((o) => (o?.tableId ? null : o))
+      // 通路也退回外帶。留在「內用」的話，下一張單會是一張**不掛在任何
+      // 桌上的內用單** —— 它不會出現在桌位圖上，於是沒有人會想起要去收。
+      // （沒有桌位的店不受影響：他們從頭到尾不會經過這裡。）
+      setChannel('takeout')
       return
     }
     setChannel('dine_in')
@@ -126,6 +131,18 @@ export default function OrderScreen({
     if (updated) setOrder(updated)
   }
 
+  /** 一鍵示範資料。空菜單是新使用者看到的第一個畫面，這顆按鈕就放在那裡。 */
+  const seedDemo = async () => {
+    const r = await run(() => demoApi.seed())
+    if (!r) return
+    const tree = await menuApi.tree().catch(() => null)
+    if (tree) {
+      setTree(tree)
+      setCategory(tree.categories[0]?.id ?? null)
+    }
+    if (!r.created) setError('已經有商品了，示範菜單沒有動任何東西。')
+  }
+
   const items: Item[] =
     category === 'uncategorized'
       ? (tree?.uncategorized ?? [])
@@ -165,9 +182,32 @@ export default function OrderScreen({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {items.length === 0 ? (
-            <p className="py-12 text-center text-sm text-slate-600">
-              {tree ? '這一類還沒有商品 —— 請先到「商品維護」建立菜單' : '載入中…'}
-            </p>
+            <div className="py-12 text-center text-sm text-slate-600">
+              {!tree ? (
+                '載入中…'
+              ) : isEmpty(tree) ? (
+                // 全新安裝看到的第一個畫面。空白畫面加一句「請先建立菜單」
+                // 會讓多數人在這裡放棄 —— 先讓他們看到這套東西能動。
+                <>
+                  <p className="mb-1 text-base text-slate-400">還沒有商品</p>
+                  <p className="mb-5">
+                    建立自己的菜單，或先載一份示範資料看看這套東西怎麼運作。
+                  </p>
+                  <button
+                    className="rounded bg-sky-800 px-5 py-3 text-base text-sky-50 hover:bg-sky-700 disabled:opacity-40"
+                    disabled={busy}
+                    onClick={() => void seedDemo()}
+                  >
+                    載入示範菜單與桌位
+                  </button>
+                  <p className="mt-3 text-xs text-slate-700">
+                    示範資料就是一般商品，之後可以直接改或刪掉。
+                  </p>
+                </>
+              ) : (
+                '這一類還沒有商品 —— 請先到「商品維護」建立菜單'
+              )}
+            </div>
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
               {items.map((it) => (
@@ -371,6 +411,11 @@ export default function OrderScreen({
       )}
     </div>
   )
+}
+
+/** 整份菜單是不是空的（不只是這一類空）。 */
+function isEmpty(tree: MenuTree): boolean {
+  return tree.uncategorized.length === 0 && tree.categories.every((c) => c.items.length === 0)
 }
 
 function Row({ label, value }: { label: string; value: number }) {

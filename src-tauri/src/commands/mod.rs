@@ -408,3 +408,14 @@ pub async fn delete_table(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
 pub async fn close_table(ctx: State<'_, Ctx>, table_id: String) -> AppResult<()> {
     services::table::close_table(&ctx, table_id).await
 }
+
+// ---------------------------------------------------------------- 示範資料
+
+/// 一鍵示範資料：一份菜單加幾張桌子。
+///
+/// 這顆按鈕的存在理由是**第一印象**：裝起來看到一片空白的人，多半不會有耐心
+/// 先去建十個品項才知道這套東西長什麼樣。已經有商品時它什麼都不做。
+#[tauri::command]
+pub async fn seed_demo(ctx: State<'_, Ctx>) -> AppResult<services::demo::DemoResult> {
+    services::demo::seed_demo(&ctx).await
+}

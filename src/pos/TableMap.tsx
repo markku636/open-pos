@@ -34,32 +34,39 @@ export default function TableMap({
   const [seating, setSeating] = useState<DiningTable | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const reload = useCallback(async () => {
+  // 讀取自己不設錯誤訊息，而是把錯誤**回傳**給呼叫端。
+  //
+  // ★ 這一層間接是必要的：背景輪詢每 10 秒跑一次，如果它成功時順手清掉
+  // 錯誤訊息，那「這一桌還有 1 張單沒有結帳」這句話最多只會存在十秒 ——
+  // 而店員按下「清桌」之後很可能正低頭看客人。被擋下來的操作必須留下話。
+  const load = useCallback(async (): Promise<string | null> => {
     try {
       setTables(await tableApi.list())
-      setError(null)
+      return null
     } catch (e) {
-      setError((e as AppError).message ?? String(e))
+      return (e as AppError).message ?? String(e)
     }
   }, [])
 
   useEffect(() => {
-    void reload()
+    void load().then((e) => e && setError(e))
     // 桌位金額會被別台終端改動（外場平板加點），所以自己重查。
     // 10 秒是「店員不會覺得數字是舊的」與「不要一直打 DB」的折衷。
-    const id = setInterval(() => void reload(), 10_000)
+    // 輪詢失敗照樣要說，但成功時不動既有的訊息。
+    const id = setInterval(() => void load().then((e) => e && setError(e)), 10_000)
     return () => clearInterval(id)
-  }, [reload])
+  }, [load])
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true)
     try {
       await fn()
-      setError(null)
-      await reload()
+      setError(await load())
       return true
     } catch (e) {
       setError((e as AppError).message ?? String(e))
+      // 失敗之後也要重讀（別人可能剛剛改過），但它的錯誤不能蓋掉上面那句。
+      void load()
       return false
     } finally {
       setBusy(false)
@@ -101,8 +108,15 @@ export default function TableMap({
       </div>
 
       {error && (
-        <div className="mb-3 rounded border border-red-800 bg-red-950/60 px-3 py-2 text-sm text-red-200">
-          {error}
+        <div className="mb-3 flex items-start gap-3 rounded border border-red-800 bg-red-950/60 px-3 py-2 text-sm text-red-200">
+          <span className="flex-1">{error}</span>
+          <button
+            className="shrink-0 px-1 text-red-400 hover:text-red-200"
+            title="知道了"
+            onClick={() => setError(null)}
+          >
+            ✕
+          </button>
         </div>
       )}
 

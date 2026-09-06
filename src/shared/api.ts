@@ -678,3 +678,18 @@ export const tableApi = {
   /** 清桌。只有在沒有未結帳的單時才允許 —— 否則它會變成一個把帳丟掉的按鈕。 */
   close: (tableId: string) => transport.call<void>('close_table', { tableId }),
 }
+
+// ---------------------------------------------------------------- 示範資料
+
+export interface DemoResult {
+  /** false = 已經有商品，什麼都沒動。 */
+  created: boolean
+  categories: number
+  items: number
+  tables: number
+}
+
+export const demoApi = {
+  /** 一鍵示範資料。裝起來看到一片空白的人多半不會先建十個品項才試用。 */
+  seed: () => transport.call<DemoResult>('seed_demo'),
+}
