@@ -620,10 +620,11 @@ pub async fn fan_out(ctx: &Ctx) -> AppResult<usize> {
         }
 
         let kind: String = row.get("kind");
-        let doc_type = if kind == "print.receipt" {
-            "receipt"
-        } else {
-            "kitchen"
+        let doc_type = match kind.as_str() {
+            "print.receipt" => "receipt",
+            "print.shift_report" => "shift_report",
+            "print.day_report" => "day_report",
+            _ => "kitchen",
         };
         let business_date: Option<String> = row.get("business_date");
         let order_id = payload.get("orderId").and_then(|v| v.as_str());
@@ -652,7 +653,9 @@ pub async fn fan_out(ctx: &Ctx) -> AppResult<usize> {
             // worker 可能在 crash 之後重跑，而重複的單廚房是看得出來的、
             // 漏掉的單沒有人看得出來。
             .bind(format!("{outbox_id}:{seq}"))
-            .bind(if doc_type == "receipt" { 0 } else { 10 })
+            // 收據與報表優先：客人站在櫃檯等發票，店員站在機器旁邊等交接單。
+            // 廚房單雖然更急，但它印到的是另一台機器，不會互相排隊。
+            .bind(if doc_type == "kitchen" { 10 } else { 0 })
             .bind(now.iso())
             .execute(uow.conn())
             .await?;

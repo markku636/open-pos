@@ -9,6 +9,7 @@ import {
   type ShiftReport,
 } from '@/shared/api'
 import { formatMoney } from '@/shared/money'
+import { hhmm } from '@/shared/time'
 
 /** 台幣現行流通面額，由大到小。數錢的人是從大鈔開始數的。 */
 const DENOMINATIONS = [1000, 500, 200, 100, 50, 10, 5, 1]
@@ -93,7 +94,7 @@ export default function ShiftPanel() {
             </div>
             <div>
               <div className="text-xs text-slate-500">開班時間</div>
-              <div className="font-mono text-sm">{shift.openedAt.slice(11, 16)}</div>
+              <div className="font-mono text-sm">{hhmm(shift.openedAt)}</div>
             </div>
             <div>
               <div className="text-xs text-slate-500">準備金</div>

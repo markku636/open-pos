@@ -682,6 +682,20 @@ pub async fn close_shift(ctx: &Ctx, req: CloseShiftReq) -> AppResult<ShiftReport
         &now,
     )
     .await?;
+
+    // 交接單要有紙：交班時兩個人要在同一張紙上對數字、簽名。
+    let store = store_name(&mut uow).await;
+    let printed_at = crate::core::clock::for_humans(now.at, tz_of(&mut uow).await);
+    let doc = shift_report_doc(&store, &report, &printed_at);
+    enqueue_report(
+        &mut uow,
+        "print.shift_report",
+        &shift.business_date,
+        doc,
+        &now,
+    )
+    .await?;
+
     uow.commit().await?;
 
     Ok(report)
@@ -734,14 +748,8 @@ pub async fn close_business_day(ctx: &Ctx) -> AppResult<DayReport> {
         .map(row_to_shift)
         .collect();
 
-    let z_report_no = sequence::next_no(
-        &mut uow,
-        &store_id,
-        Scope::Shift,
-        &format!("Z{business_date}"),
-        &now,
-    )
-    .await?;
+    let z_report_no =
+        sequence::next_no(&mut uow, &store_id, Scope::ZReport, &business_date, &now).await?;
 
     // ★ 聚合寫進 daily_summaries：報表只讀它，不掃 order_items。
     //   三年後 order_items 上看百萬列，全表掃會愈跑愈慢 ——
@@ -863,6 +871,12 @@ pub async fn close_business_day(ctx: &Ctx) -> AppResult<DayReport> {
         &now,
     )
     .await?;
+
+    let store = store_name(&mut uow).await;
+    let printed_at = crate::core::clock::for_humans(now.at, tz_of(&mut uow).await);
+    let doc = day_report_doc(&store, &report, &printed_at);
+    enqueue_report(&mut uow, "print.day_report", &business_date, doc, &now).await?;
+
     uow.commit().await?;
 
     Ok(report)
@@ -891,6 +905,196 @@ async fn top_items(uow: &mut SqliteUow, business_date: &str) -> AppResult<Vec<It
             amount: r.get("amount"),
         })
         .collect())
+}
+
+// ---------------------------------------------------------------- 報表出單
+
+fn money(n: i64) -> String {
+    // 報表上用負號而不是括號：括號在窄紙上很容易被看成「1」。
+    n.to_string()
+}
+
+fn section(title: &str, rows: Vec<(&str, i64)>) -> crate::receipt::templates::ReportSection {
+    crate::receipt::templates::ReportSection {
+        title: Some(title.to_string()),
+        rows: rows
+            .into_iter()
+            .map(|(l, v)| (l.to_string(), money(v)))
+            .collect(),
+    }
+}
+
+/// 店家時區。印在紙上的時間一律用它 —— 資料庫存的是 UTC。
+async fn tz_of(uow: &mut SqliteUow) -> chrono_tz::Tz {
+    sqlx::query_scalar::<_, String>(
+        "SELECT tz FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1",
+    )
+    .fetch_optional(uow.conn())
+    .await
+    .ok()
+    .flatten()
+    .and_then(|t| t.parse().ok())
+    .unwrap_or(chrono_tz::Asia::Taipei)
+}
+
+async fn store_name(uow: &mut SqliteUow) -> String {
+    sqlx::query_scalar::<_, String>(
+        "SELECT name FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1",
+    )
+    .fetch_optional(uow.conn())
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "本店".into())
+}
+
+/// 把報表排版好丟進出單佇列。
+///
+/// **交接單要有紙。** 交班時兩個人要在同一張紙上對數字、簽名；
+/// 只存在螢幕上的交接紀錄，在事後爭議時沒有任何用處。
+async fn enqueue_report(
+    uow: &mut SqliteUow,
+    kind: &str,
+    business_date: &str,
+    data: crate::receipt::templates::ReportData,
+    now: &Stamp,
+) -> AppResult<()> {
+    let doc = crate::receipt::templates::report_ticket(&data, crate::receipt::PaperWidth::Mm80);
+    // 沒有 stationId：報表不屬於任何出單分區，路由會把它送到櫃檯那台。
+    let payload = serde_json::json!({ "reason": "settle", "doc": doc });
+    sqlx::query(
+        "INSERT INTO outbox (id, kind, payload_json, status, attempts, next_attempt_at,
+                             business_date, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'pending', 0, ?4, ?5, ?4, ?4)",
+    )
+    .bind(Id::new().as_str())
+    .bind(kind)
+    .bind(payload.to_string())
+    .bind(now.iso())
+    .bind(business_date)
+    .execute(uow.conn())
+    .await?;
+    Ok(())
+}
+
+fn shift_report_doc(
+    store: &str,
+    report: &ShiftReport,
+    printed_at: &str,
+) -> crate::receipt::templates::ReportData {
+    let mut sections = vec![section(
+        "銷售",
+        vec![
+            ("帳單數", report.sales.bills),
+            ("銷售總額", report.sales.total),
+            ("未稅", report.sales.sales),
+            ("稅額", report.sales.tax),
+        ],
+    )];
+    if !report.payments.is_empty() {
+        sections.push(crate::receipt::templates::ReportSection {
+            title: Some("收款方式".into()),
+            rows: report
+                .payments
+                .iter()
+                .map(|p| (format!("{}（{}）", p.name, p.count), money(p.amount)))
+                .collect(),
+        });
+    }
+    sections.push(section(
+        "現金",
+        vec![
+            ("準備金", report.cash.opening_float),
+            ("現金銷售", report.cash.cash_sales),
+            ("現金收入", report.cash.paid_in),
+            ("現金支出", -report.cash.paid_out),
+            ("應有現金", report.cash.expected),
+            ("實際盤點", report.cash.counted.unwrap_or(0)),
+            ("差異", report.cash.variance.unwrap_or(0)),
+        ],
+    ));
+    if report.voids.voided_lines > 0 {
+        sections.push(section(
+            "作廢",
+            vec![
+                ("退掉品項", report.voids.voided_lines),
+                ("金額", -report.voids.voided_amount),
+            ],
+        ));
+    }
+
+    crate::receipt::templates::ReportData {
+        store_name: store.to_string(),
+        title: "交接單".into(),
+        subtitle: report.shift_no.clone(),
+        printed_at: printed_at.to_string(),
+        sections,
+        // 交接是兩個人的事，所以要兩個簽名欄。
+        footer: Some("交班簽名 ________　接班簽名 ________".into()),
+    }
+}
+
+fn day_report_doc(
+    store: &str,
+    report: &DayReport,
+    printed_at: &str,
+) -> crate::receipt::templates::ReportData {
+    let mut sections = vec![section(
+        "銷售",
+        vec![
+            ("帳單數", report.sales.bills),
+            ("銷售總額", report.sales.total),
+            ("未稅", report.sales.sales),
+            ("稅額", report.sales.tax),
+            ("折扣", -report.sales.discount),
+            ("服務費", report.sales.service_charge),
+        ],
+    )];
+    if !report.payments.is_empty() {
+        sections.push(crate::receipt::templates::ReportSection {
+            title: Some("收款方式".into()),
+            rows: report
+                .payments
+                .iter()
+                .map(|p| (format!("{}（{}）", p.name, p.count), money(p.amount)))
+                .collect(),
+        });
+    }
+    if !report.shifts.is_empty() {
+        sections.push(crate::receipt::templates::ReportSection {
+            title: Some("各班現金差異".into()),
+            rows: report
+                .shifts
+                .iter()
+                .map(|s| (s.shift_no.clone(), money(s.cash_variance.unwrap_or(0))))
+                .collect(),
+        });
+    }
+    if !report.top_items.is_empty() {
+        sections.push(crate::receipt::templates::ReportSection {
+            title: Some("品項排行".into()),
+            rows: report
+                .top_items
+                .iter()
+                .take(10)
+                .map(|i| {
+                    (
+                        format!("{} x{}", i.name, i.qty_milli / 1000),
+                        money(i.amount),
+                    )
+                })
+                .collect(),
+        });
+    }
+
+    crate::receipt::templates::ReportData {
+        store_name: store.to_string(),
+        title: "日結 Z 報表".into(),
+        subtitle: format!("{} {}", report.z_report_no, report.business_date),
+        printed_at: printed_at.to_string(),
+        sections,
+        footer: Some("此報表為日結當下的快照，之後不再重算。".into()),
+    }
 }
 
 /// 今天的營業狀態，給畫面上的班別列用。

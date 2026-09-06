@@ -21,6 +21,9 @@ pub enum Scope {
     Order,
     Bill,
     Shift,
+    /// 日結報表。**必須跟班別分開計數** —— 一天只有一張 Z 報表，
+    /// 而店家在對帳時會報這個號碼，它長得像班別號只會造成混淆。
+    ZReport,
 }
 
 impl Scope {
@@ -29,6 +32,7 @@ impl Scope {
             Self::Order => "order",
             Self::Bill => "bill",
             Self::Shift => "shift",
+            Self::ZReport => "zreport",
         }
     }
     /// 單號的前綴字母。店員報號時「A 開頭的是訂單」很好認。
@@ -37,6 +41,7 @@ impl Scope {
             Self::Order => "A",
             Self::Bill => "B",
             Self::Shift => "S",
+            Self::ZReport => "Z",
         }
     }
 }

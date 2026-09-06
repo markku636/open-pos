@@ -10,6 +10,7 @@ import {
   type Station,
   type Transport,
 } from '@/shared/api'
+import { dateTime } from '@/shared/time'
 
 /**
  * 出單機設定。
@@ -279,7 +280,7 @@ export default function PrinterSettings() {
                 {j.stationName && <span className="text-xs text-slate-500">{j.stationName}</span>}
                 <span className="text-xs text-slate-600">{reasonLabel(j.reason)}</span>
                 <span className="font-mono text-xs text-slate-600">
-                  {j.createdAt.slice(11, 16)}
+                  {dateTime(j.createdAt)}
                 </span>
                 {j.lastError && (
                   <span className="min-w-0 flex-1 truncate text-xs text-amber-300" title={j.lastError}>

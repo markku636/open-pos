@@ -456,3 +456,97 @@ async fn the_shift_snapshot_does_not_move_afterwards() {
 
     e.ctx.db.close().await;
 }
+
+/// ★ 交接單與 Z 報表要有紙。
+///
+/// 交班時兩個人要在同一張紙上對數字、簽名；只存在螢幕上的交接紀錄，
+/// 在事後爭議時沒有任何用處。
+#[tokio::test]
+async fn closing_prints_a_handover_slip_and_a_z_report() {
+    use open_pos::infra::printer::escpos::{decode, CjkEncoding};
+    use open_pos::infra::printer::Transport;
+    use open_pos::receipt::PaperWidth;
+    use open_pos::services::{print_worker, printer};
+
+    let e = env("printed").await;
+    demo::seed_demo_menu(&e.ctx).await.unwrap();
+
+    let spool = e.root.join("spool").join("job.bin");
+    printer::upsert_printer(
+        &e.ctx,
+        printer::PrinterInput {
+            id: None,
+            name: "櫃檯".into(),
+            transport: Transport::File {
+                path: spool.to_string_lossy().into_owned(),
+                append: true,
+            },
+            paper: PaperWidth::Mm80,
+            encoding: Some(CjkEncoding::Big5),
+            cutter: Some(true),
+            drawer: None,
+            status_query: None,
+            render_mode: Some("text".into()),
+            is_active: Some(true),
+        },
+    )
+    .await
+    .unwrap();
+
+    shift::open_shift(
+        &e.ctx,
+        shift::OpenShiftReq {
+            opening_float: 1000,
+            counts: None,
+            note: None,
+        },
+    )
+    .await
+    .unwrap();
+    e.sell("珍珠奶茶", 100).await;
+    shift::close_shift(
+        &e.ctx,
+        shift::CloseShiftReq {
+            counts: counts(&[(1000, 1), (50, 1), (10, 1)]),
+            note: None,
+        },
+    )
+    .await
+    .unwrap();
+    let day = shift::close_business_day(&e.ctx).await.unwrap();
+
+    print_worker::tick(&e.ctx).await.unwrap();
+
+    let bytes = std::fs::read(&spool).expect("什麼都沒印出來");
+    let text = decode::render_human(&decode::decode(&bytes, CjkEncoding::Big5));
+
+    assert!(
+        text.contains("交接單"),
+        "少了交接單：
+{text}"
+    );
+    assert!(
+        text.contains("應有現金"),
+        "
+{text}"
+    );
+    assert!(
+        text.contains("交班簽名"),
+        "交接單要有簽名欄：
+{text}"
+    );
+    assert!(
+        text.contains("日結"),
+        "少了 Z 報表：
+{text}"
+    );
+    assert!(
+        text.contains(&day.z_report_no),
+        "Z 報表要印報表號：
+{text}"
+    );
+    // Z 報表號要跟班別號分開：店家對帳時會報這個號碼。
+    assert!(day.z_report_no.starts_with("Z-"), "{}", day.z_report_no);
+
+    e.ctx.db.close().await;
+}

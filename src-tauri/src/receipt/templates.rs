@@ -250,6 +250,64 @@ pub fn customer_receipt(data: &TicketData, paper: PaperWidth) -> ReceiptDoc {
         })
 }
 
+/// 報表單（班別交接單、X 報表、Z 報表共用）。
+///
+/// 做成通用版型而不是三個各寫一份：三種報表的排版需求完全一樣
+/// （標題、幾個分區、每區若干「說明 + 金額」兩欄），差別只在內容。
+/// 分成三份的話，改一次欄寬要改三個地方，而它們一定會慢慢長歪。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReportSection {
+    pub title: Option<String>,
+    /// (說明, 值)。值已經格式化好 —— 版型層不做數字格式化，
+    /// 因為「要不要加千分位」是業務決定不是排版決定。
+    pub rows: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReportData {
+    pub store_name: String,
+    pub title: String,
+    /// 班別號或 Z 報表號。店家對帳時會報這個號碼。
+    pub subtitle: String,
+    pub printed_at: String,
+    pub sections: Vec<ReportSection>,
+    pub footer: Option<String>,
+}
+
+/// 報表單。**不開錢箱** —— 印報表不是收錢。
+pub fn report_ticket(data: &ReportData, paper: PaperWidth) -> ReceiptDoc {
+    let cols = paper.cols();
+    let mut doc = ReceiptDoc::new(paper)
+        .styled(&data.store_name, TextStyle::centered())
+        .banner(&data.title, false)
+        .styled(&data.subtitle, TextStyle::centered())
+        .styled(&data.printed_at, TextStyle::centered())
+        .rule();
+
+    for section in &data.sections {
+        if let Some(t) = &section.title {
+            doc = doc.styled(t, TextStyle::bold());
+        }
+        for (label, value) in &section.rows {
+            // 說明靠左、金額靠右。這是所有報表單唯一的排版規則，
+            // 而它必須在 58mm 與 80mm 上都成立。
+            doc = doc.columns(
+                vec![Cell::left(label.clone()), Cell::right(value.clone())],
+                vec![3, 2],
+            );
+        }
+        doc = doc.rule();
+    }
+
+    if let Some(f) = &data.footer {
+        for line in crate::receipt::layout::wrap(f, cols) {
+            doc = doc.styled(line, TextStyle::centered());
+        }
+    }
+    // 交接單通常要簽名。留白比讓店員自己找空位寫好。
+    doc.feed(2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
