@@ -215,6 +215,8 @@ pub fn run() {
             commands::add_lines,
             commands::void_line,
             commands::settle,
+            commands::apply_discount,
+            commands::void_order,
             commands::get_order,
             commands::list_open_orders,
             commands::payment_methods,

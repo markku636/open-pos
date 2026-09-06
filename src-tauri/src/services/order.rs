@@ -33,6 +33,7 @@ use crate::infra::db::sqlite::SqliteUow;
 use crate::receipt::templates::{self, TicketData, TicketLine, TicketReason};
 use crate::receipt::PaperWidth;
 use crate::services::audit::{self, AuditAction, AuditEntry};
+use crate::services::rbac;
 use crate::services::sequence::{self, Scope};
 
 // ---------------------------------------------------------------- DTO
@@ -463,6 +464,306 @@ pub async fn void_line(
     get_order(ctx, &order_id).await
 }
 
+// ---------------------------------------------------------------- 折扣
+
+const PERM_LINE_DISCOUNT: &str = "discount.line";
+const PERM_ORDER_DISCOUNT: &str = "discount.order";
+const PERM_COMP: &str = "discount.comp";
+const PERM_VOID_ORDER: &str = "order.void";
+const PERM_VOID_AFTER_SETTLE: &str = "order.void.after_settle";
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscountReq {
+    pub order_id: String,
+    pub expected_rev: i64,
+    /// None = 整單折扣。
+    pub line_id: Option<String>,
+    /// percent（basis point，8500 = 85 折）/ amount（整數元）/ comp（招待）。
+    pub kind: String,
+    pub value: i64,
+    pub reason_id: Option<String>,
+    pub note: Option<String>,
+    /// 主管授權（收銀員權限不足時）。
+    pub approver_id: Option<String>,
+}
+
+/// 打折。
+///
+/// **招待與折扣分開兩個權限**：老闆看折扣是看行銷成效，看招待是看有沒有人
+/// 在送人情。把它們混成一個權限，等於把後者藏進前者裡。
+pub async fn apply_discount(ctx: &Ctx, req: DiscountReq) -> AppResult<OrderView> {
+    let (perm, label) = match req.kind.as_str() {
+        "comp" => (PERM_COMP, "招待"),
+        _ if req.line_id.is_some() => (PERM_LINE_DISCOUNT, "單品折扣"),
+        _ => (PERM_ORDER_DISCOUNT, "整單折扣"),
+    };
+    if !["percent", "amount", "comp"].contains(&req.kind.as_str()) {
+        return Err(AppError::Validation(format!(
+            "不認得的折扣種類：{}",
+            req.kind
+        )));
+    }
+    if req.kind == "percent" && !(1..=10_000).contains(&req.value) {
+        return Err(AppError::Validation(
+            "折數要用 basis point：8500 = 85 折，1 到 10000 之間".into(),
+        ));
+    }
+    if req.kind == "amount" && req.value <= 0 {
+        return Err(AppError::Validation("折抵金額要大於 0".into()));
+    }
+
+    let approver = load_actor(ctx, req.approver_id.as_deref()).await?;
+    let authorized =
+        rbac::require_with_approval(&ctx.db, &ctx.actor, approver.as_ref(), perm).await?;
+
+    let store = load_store(ctx).await?;
+    let now = Stamp::now();
+
+    let mut uow = ctx.db.begin_write().await?;
+    let head = load_order_head(&mut uow, &req.order_id).await?;
+    crate::services::shift::ensure_day_open(&mut uow, &head.business_date).await?;
+    ensure_open(&head)?;
+    ensure_rev(&head, req.expected_rev)?;
+
+    if let Some(line_id) = &req.line_id {
+        let belongs: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM order_items WHERE id = ?1 AND order_id = ?2 AND voided_at IS NULL",
+        )
+        .bind(line_id)
+        .bind(&req.order_id)
+        .fetch_optional(uow.conn())
+        .await?;
+        if belongs.is_none() {
+            return Err(AppError::NotFound("找不到這一個品項".into()));
+        }
+    }
+
+    sqlx::query(
+        "INSERT INTO order_discounts (id, order_id, order_item_id, name_snapshot, type_snapshot,
+                                      value_snapshot, amount, reason_id, note, approved_by,
+                                      created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11)",
+    )
+    .bind(Id::new().as_str())
+    .bind(&req.order_id)
+    .bind(&req.line_id)
+    .bind(label)
+    .bind(&req.kind)
+    .bind(req.value)
+    .bind(&req.reason_id)
+    .bind(&req.note)
+    .bind(approver.as_ref().map(|a| a.user_id.clone()))
+    .bind(&ctx.actor.user_id)
+    .bind(now.iso())
+    .execute(uow.conn())
+    .await?;
+
+    let before = head.grand_total;
+    let totals = recompute(&mut uow, &req.order_id, &store, head.channel, &now).await?;
+    bump_order(
+        &mut uow,
+        &req.order_id,
+        head.rev,
+        &head.status,
+        &totals,
+        &now,
+    )
+    .await?;
+
+    // 折扣是動到錢的操作，稽核一定要留，而且要留「差了多少」。
+    let mut entry = AuditEntry::new("order", &req.order_id, AuditAction::Discount)
+        .amount(totals.grand_total.0 - before)
+        .on(&head.business_date);
+    if let Some(r) = &req.reason_id {
+        entry = entry.reason(r);
+    }
+    if authorized.user_id != ctx.actor.user_id {
+        entry = entry.approved_by(&authorized.user_id);
+    }
+    audit::write_in(&mut uow, entry, &ctx.actor, &now).await?;
+
+    let seq = next_event_seq(&mut uow, &req.order_id).await?;
+    write_event(
+        &mut uow,
+        &req.order_id,
+        seq,
+        "discount_applied",
+        None,
+        None,
+        ctx,
+        &now,
+    )
+    .await?;
+
+    uow.commit().await?;
+    get_order(ctx, &req.order_id).await
+}
+
+async fn load_actor(ctx: &Ctx, user_id: Option<&str>) -> AppResult<Option<rbac::Actor>> {
+    let Some(user_id) = user_id else {
+        return Ok(None);
+    };
+    let r = sqlx::query("SELECT id, code, name FROM users WHERE id = ?1 AND deleted_at IS NULL")
+        .bind(user_id)
+        .fetch_optional(ctx.db.reader())
+        .await?
+        .ok_or_else(|| AppError::NotFound("找不到這位主管".into()))?;
+    Ok(Some(rbac::Actor {
+        user_id: r.get("id"),
+        code: r.get("code"),
+        name: r.get("name"),
+    }))
+}
+
+// ---------------------------------------------------------------- 作廢整單
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoidOrderReq {
+    pub order_id: String,
+    pub expected_rev: i64,
+    /// 作廢一定要有原因。沒有原因的作廢是查不動的。
+    pub reason_id: Option<String>,
+    pub note: Option<String>,
+    pub approver_id: Option<String>,
+}
+
+/// 作廢整張單。
+///
+/// ★ **結帳後作廢是餐飲業最大的防弊點**：結完帳再作廢等於私吞現金。
+///   所以它走一個獨立的權限碼（`order.void.after_settle`），而且會寫進
+///   `approvals`，日結時看得到。
+pub async fn void_order(ctx: &Ctx, req: VoidOrderReq) -> AppResult<OrderView> {
+    let now = Stamp::now();
+    let store = load_store(ctx).await?;
+
+    let mut uow = ctx.db.begin_write().await?;
+    let head = load_order_head(&mut uow, &req.order_id).await?;
+    crate::services::shift::ensure_day_open(&mut uow, &head.business_date).await?;
+    ensure_rev(&head, req.expected_rev)?;
+    if head.status == "voided" {
+        return Err(AppError::Conflict("這張單已經作廢了".into()));
+    }
+
+    let after_settle = head.status == "settled";
+    let perm = if after_settle {
+        PERM_VOID_AFTER_SETTLE
+    } else {
+        PERM_VOID_ORDER
+    };
+    if after_settle && req.reason_id.is_none() {
+        // 結帳後作廢一定要有原因。這是防弊的一半 ——
+        // 另一半是有人要簽名。
+        return Err(AppError::Validation("結帳後作廢必須選一個原因。".into()));
+    }
+    uow.rollback().await?;
+
+    let approver = load_actor(ctx, req.approver_id.as_deref()).await?;
+    let authorized =
+        rbac::require_with_approval(&ctx.db, &ctx.actor, approver.as_ref(), perm).await?;
+
+    let mut uow = ctx.db.begin_write().await?;
+    let head = load_order_head(&mut uow, &req.order_id).await?;
+    ensure_rev(&head, req.expected_rev)?;
+
+    sqlx::query(
+        "UPDATE orders SET status = 'voided', voided_at = ?2, void_reason_id = ?3,
+                           void_by = ?4, rev = rev + 1, updated_at = ?2
+          WHERE id = ?1",
+    )
+    .bind(&req.order_id)
+    .bind(now.iso())
+    .bind(&req.reason_id)
+    .bind(&ctx.actor.user_id)
+    .execute(uow.conn())
+    .await?;
+    sqlx::query(
+        "UPDATE order_items SET voided_at = ?2, void_reason_id = ?3, void_by = ?4, updated_at = ?2
+          WHERE order_id = ?1 AND voided_at IS NULL",
+    )
+    .bind(&req.order_id)
+    .bind(now.iso())
+    .bind(&req.reason_id)
+    .bind(&ctx.actor.user_id)
+    .execute(uow.conn())
+    .await?;
+    sqlx::query("UPDATE bills SET status = 'voided', updated_at = ?2 WHERE order_id = ?1")
+        .bind(&req.order_id)
+        .bind(now.iso())
+        .execute(uow.conn())
+        .await?;
+
+    // 結帳後作廢要留一筆簽核紀錄，日結時看得到。
+    if after_settle {
+        sqlx::query(
+            "INSERT INTO approvals (id, action_code, ref_type, ref_id, amount, reason_id, note,
+                                    requested_by, approved_by, auth_method, business_date,
+                                    approved_at, created_at)
+             VALUES (?1, ?2, 'order', ?3, ?4, ?5, ?6, ?7, ?8, 'pin', ?9, ?10, ?10)",
+        )
+        .bind(Id::new().as_str())
+        .bind(PERM_VOID_AFTER_SETTLE)
+        .bind(&req.order_id)
+        .bind(head.grand_total)
+        .bind(&req.reason_id)
+        .bind(&req.note)
+        .bind(&ctx.actor.user_id)
+        .bind(&authorized.user_id)
+        .bind(&head.business_date)
+        .bind(now.iso())
+        .execute(uow.conn())
+        .await?;
+    }
+
+    // 結帳後作廢用獨立的動作碼。日結時要能單獨統計它 ——
+    // 「結完帳再作廢」是餐飲業最大的防弊點，混在一般作廢裡就看不出來了。
+    let action = if after_settle {
+        AuditAction::VoidAfterSettle
+    } else {
+        AuditAction::Void
+    };
+    let mut entry = AuditEntry::new("order", &req.order_id, action)
+        // 金額用負的：作廢是把已經計入的錢拿掉。
+        .amount(-head.grand_total)
+        .on(&head.business_date);
+    if let Some(r) = &req.reason_id {
+        entry = entry.reason(r);
+    }
+    if authorized.user_id != ctx.actor.user_id {
+        entry = entry.approved_by(&authorized.user_id);
+    }
+    audit::write_in(&mut uow, entry, &ctx.actor, &now).await?;
+
+    let seq = next_event_seq(&mut uow, &req.order_id).await?;
+    write_event(
+        &mut uow,
+        &req.order_id,
+        seq,
+        "order_voided",
+        Some(&head.status),
+        Some("voided"),
+        ctx,
+        &now,
+    )
+    .await?;
+
+    // 廚房要知道整桌都不做了。
+    enqueue_kitchen_ticket(
+        &mut uow,
+        ctx,
+        &store,
+        &req.order_id,
+        TicketReason::Void,
+        None,
+        &now,
+    )
+    .await?;
+
+    uow.commit().await?;
+    get_order(ctx, &req.order_id).await
+}
+
 // ---------------------------------------------------------------- 結帳
 
 pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
@@ -710,11 +1011,14 @@ struct OrderHead {
     channel: Channel,
     business_date: String,
     table_session_id: Option<String>,
+    /// 作廢與稽核要記「動了多少錢」，所以 head 就要帶著它。
+    grand_total: i64,
 }
 
 async fn load_order_head(uow: &mut SqliteUow, id: &str) -> AppResult<OrderHead> {
     let r = sqlx::query(
-        "SELECT rev, status, channel, business_date, table_session_id FROM orders WHERE id = ?1",
+        "SELECT rev, status, channel, business_date, table_session_id, grand_total
+           FROM orders WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(uow.conn())
@@ -732,6 +1036,7 @@ async fn load_order_head(uow: &mut SqliteUow, id: &str) -> AppResult<OrderHead> 
         },
         business_date: r.get("business_date"),
         table_session_id: r.get("table_session_id"),
+        grand_total: r.get("grand_total"),
     })
 }
 
@@ -925,6 +1230,19 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
 /// 回傳新建立的那一行的 id。
 ///
 /// 呼叫端需要它：加點單**只能印這一次新增的行**（見 `enqueue_kitchen_ticket`）。
+/// 資料庫存的折扣種類 → 定價引擎的型別。
+///
+/// 認不得的種類當成「沒有折扣」而不是報錯：一筆壞掉的折扣資料不該讓
+/// 整張單算不出金額，而收銀員正站在客人面前。
+fn discount_kind(type_snapshot: &str, value: i64) -> pricing::DiscountKind {
+    match type_snapshot {
+        "percent" => pricing::DiscountKind::Percent(value),
+        "amount" => pricing::DiscountKind::Amount(value),
+        "comp" => pricing::DiscountKind::Comp,
+        _ => pricing::DiscountKind::Amount(0),
+    }
+}
+
 async fn insert_line(
     uow: &mut SqliteUow,
     order_id: &str,
@@ -1021,6 +1339,15 @@ async fn recompute(
         .fetch_all(uow.conn())
         .await?;
 
+        // 這一行自己的折扣。定價引擎會先扣它，再算整單折扣的分攤。
+        let line_discounts = sqlx::query(
+            "SELECT type_snapshot, value_snapshot FROM order_discounts
+              WHERE order_item_id = ?1 ORDER BY created_at, id",
+        )
+        .bind(&id)
+        .fetch_all(uow.conn())
+        .await?;
+
         lines.push(LineInput {
             unit_price: Money(r.get::<i64, _>("unit_price")),
             qty_milli: r.get("qty_milli"),
@@ -1033,10 +1360,41 @@ async fn recompute(
                     )
                 })
                 .collect(),
-            discounts: Vec::new(),
+            discounts: line_discounts
+                .iter()
+                .map(|d| pricing::LineDiscount {
+                    kind: discount_kind(
+                        &d.get::<String, _>("type_snapshot"),
+                        d.get("value_snapshot"),
+                    ),
+                    max_amount: None,
+                })
+                .collect(),
         });
         ids.push(id);
     }
+
+    // 整單折扣（order_item_id 是 NULL 的那些）。
+    let order_discount_rows = sqlx::query(
+        "SELECT type_snapshot, value_snapshot FROM order_discounts
+          WHERE order_id = ?1 AND order_item_id IS NULL ORDER BY created_at, id",
+    )
+    .bind(order_id)
+    .fetch_all(uow.conn())
+    .await?;
+    let order_discounts: Vec<pricing::OrderDiscount> = order_discount_rows
+        .iter()
+        .map(|d| pricing::OrderDiscount {
+            kind: discount_kind(
+                &d.get::<String, _>("type_snapshot"),
+                d.get("value_snapshot"),
+            ),
+            max_amount: None,
+            // 台灣兩種做法都存在（打折後收 10%、或按原價收 10%）。
+            // 預設「折扣後才算服務費」—— 對客人比較有利的那一種。
+            before_service_charge: true,
+        })
+        .collect();
 
     let out = pricing::compute(&PricingInput {
         channel,
@@ -1044,7 +1402,7 @@ async fn recompute(
         rounding: store.rounding,
         tax_rate_bp: store.tax_rate_bp,
         lines,
-        order_discounts: Vec::new(),
+        order_discounts,
     })?;
 
     for (id, l) in ids.iter().zip(&out.lines) {

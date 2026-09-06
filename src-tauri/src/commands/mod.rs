@@ -363,3 +363,22 @@ pub async fn export_day_csv(
     let report = services::shift::stored_day_report(&ctx, &business_date).await?;
     services::report_export::export_day_csv(&ctx, &report, dir).await
 }
+
+/// 打折。招待與折扣是兩個權限 —— 老闆看折扣是看行銷成效，
+/// 看招待是看有沒有人在送人情。
+#[tauri::command]
+pub async fn apply_discount(
+    ctx: State<'_, Ctx>,
+    req: services::order::DiscountReq,
+) -> AppResult<services::order::OrderView> {
+    services::order::apply_discount(&ctx, req).await
+}
+
+/// 作廢整張單。結帳後作廢走獨立權限並留簽核紀錄。
+#[tauri::command]
+pub async fn void_order(
+    ctx: State<'_, Ctx>,
+    req: services::order::VoidOrderReq,
+) -> AppResult<services::order::OrderView> {
+    services::order::void_order(&ctx, req).await
+}

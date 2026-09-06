@@ -564,3 +564,32 @@ export const reportApi = {
   exportDayCsv: (businessDate: string, dir: string) =>
     transport.call<string>('export_day_csv', { businessDate, dir }),
 }
+
+// ---------------------------------------------------------------- 折扣與作廢
+
+export interface DiscountInput {
+  orderId: string
+  expectedRev: number
+  /** 省略 = 整單折扣。 */
+  lineId?: string | null
+  /** percent（basis point，8500 = 85 折）/ amount（整數元）/ comp（招待）。 */
+  kind: 'percent' | 'amount' | 'comp'
+  value: number
+  reasonId?: string | null
+  note?: string | null
+  /** 收銀員權限不足時的主管授權。 */
+  approverId?: string | null
+}
+
+export const discountApi = {
+  apply: (req: DiscountInput) => transport.call<Order>('apply_discount', { req }),
+  voidOrder: (
+    orderId: string,
+    expectedRev: number,
+    reasonId?: string | null,
+    note?: string | null,
+  ) =>
+    transport.call<Order>('void_order', {
+      req: { orderId, expectedRev, reasonId, note },
+    }),
+}

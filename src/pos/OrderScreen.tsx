@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import DiscountDialog from './DiscountDialog'
 import PaymentPanel from './PaymentPanel'
 import {
+  discountApi,
   menuApi,
   orderApi,
   type AppError,
@@ -29,6 +31,8 @@ export default function OrderScreen() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [paying, setPaying] = useState(false)
+  /** null = 沒開；'' = 整單折扣；其他 = 那一行的折扣。 */
+  const [discounting, setDiscounting] = useState<string | null>(null)
 
   useEffect(() => {
     menuApi
@@ -198,6 +202,14 @@ export default function OrderScreen() {
                 </span>
                 <span className="w-16 shrink-0 text-right">{formatMoney(l.amount)}</span>
                 <button
+                  className="shrink-0 px-1 text-xs text-slate-600 opacity-0 transition group-hover:opacity-100 hover:text-amber-300"
+                  disabled={busy}
+                  title="這一項打折或招待"
+                  onClick={() => setDiscounting(l.id)}
+                >
+                  %
+                </button>
+                <button
                   className="shrink-0 px-1 text-xs text-slate-600 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
                   disabled={busy}
                   title="退掉這一項（會通知廚房）"
@@ -229,8 +241,31 @@ export default function OrderScreen() {
               未稅 {formatMoney(order.salesAmount)}　稅 {formatMoney(order.taxAmount)}
             </p>
 
+            <div className="mt-3 flex gap-2">
+              <button
+                className="flex-1 rounded bg-slate-800 py-2.5 text-sm hover:bg-slate-700 disabled:opacity-40"
+                disabled={busy || order.status === 'settled'}
+                onClick={() => setDiscounting('')}
+              >
+                整單折扣
+              </button>
+              <button
+                className="flex-1 rounded bg-slate-800 py-2.5 text-sm text-slate-400 hover:bg-red-900/60 hover:text-red-200 disabled:opacity-40"
+                disabled={busy}
+                title="整張單不做了。已經送到廚房的品項會印一張取消單"
+                onClick={() => {
+                  if (!confirm('要作廢整張單嗎？\n\n已經送到廚房的品項會印一張取消單。')) return
+                  void run(() => discountApi.voidOrder(order.id, order.rev)).then((r) => {
+                    if (r) setOrder(null)
+                  })
+                }}
+              >
+                作廢整單
+              </button>
+            </div>
+
             <button
-              className="mt-3 w-full rounded bg-emerald-700 py-3 text-lg font-semibold hover:bg-emerald-600 disabled:opacity-40"
+              className="mt-2 w-full rounded bg-emerald-700 py-3 text-lg font-semibold hover:bg-emerald-600 disabled:opacity-40"
               disabled={busy || order.status === 'settled'}
               onClick={() => setPaying(true)}
             >
@@ -239,6 +274,19 @@ export default function OrderScreen() {
           </div>
         )}
       </aside>
+
+      {discounting !== null && order && (
+        <DiscountDialog
+          order={order}
+          lineId={discounting || undefined}
+          onClose={() => setDiscounting(null)}
+          onDone={(updated) => {
+            setOrder(updated)
+            setDiscounting(null)
+            setError(null)
+          }}
+        />
+      )}
 
       {paying && order && (
         <PaymentPanel
