@@ -1,0 +1,81 @@
+name: 回報出單機相容性
+description: 你的機器能用（或不能用）—— 這是這個專案最有價值的資產之一
+labels: [hardware]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **這張表本身就是這個專案最有價值的東西之一。**
+
+        一個開源 POS 面對的是未知機型，而維護者手上不可能有那些機器。
+        每一筆回報都會直接寫進
+        [硬體相容表](https://github.com/markku636/open-pos/blob/main/docs/hardware-matrix.md)，
+        讓下一個買同一台機器的人少踩一次坑。
+
+        **能用**也請回報 —— 一張只有「壞掉的機型」的表，會讓人以為
+        什麼都不能用。
+
+  - type: input
+    id: model
+    attributes:
+      label: 機型
+      placeholder: 例如：EPSON TM-T82III / SEWOO SLK-TS400 / 佳博 GP-80250IVN
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: 怎麼接的
+      options:
+        - 網路（TCP 9100）
+        - USB
+        - 藍牙
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: paper
+    attributes:
+      label: 紙寬
+      options: ['80mm', '58mm', '其他']
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: 結果
+      options:
+        - 可以用（測試列印看得懂）
+        - 印得出來但中文是亂碼
+        - 印得出來但排版跑掉
+        - 完全連不上
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: encoding
+    attributes:
+      label: 用哪一種中文編碼可以正常
+      options: ['Big5', 'GB18030', 'UTF-8', '都試過還是亂碼', '沒試過']
+
+  - type: checkboxes
+    id: features
+    attributes:
+      label: 哪些功能是好的
+      options:
+        - label: 切紙
+        - label: 錢箱（接在印表機上）
+        - label: 狀態查詢（缺紙時 App 會知道）
+        - label: 點陣圖模式
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 其他
+      description: |
+        設定上有什麼要注意的？印出來的樣子有什麼問題？
+        如果是亂碼或排版跑掉，附一張照片會非常有幫助。

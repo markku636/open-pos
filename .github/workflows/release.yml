@@ -1,0 +1,101 @@
+name: Release
+
+# 推一個 v* 的 tag 就出四個平台的安裝檔。
+#
+# 為什麼是 tag 而不是每次 push：安裝檔是給店家下載的東西，
+# 它必須對應到一個「我確認過這一版可以用」的時間點，而不是最新的一次 commit。
+on:
+  push:
+    tags: ['v*']
+  # 手動也能跑：發版前想先確認四個平台都建得起來時用。
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # 一個平台失敗不要把其他三個一起砍掉 —— 大部分店家只需要 Windows 那一個，
+      # 而 macOS 的簽章問題不該擋住他們拿到安裝檔。
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            args: ''
+          - os: macos-latest
+            label: macOS (Apple Silicon)
+            args: '--target aarch64-apple-darwin'
+          - os: macos-latest
+            label: macOS (Intel)
+            args: '--target x86_64-apple-darwin'
+          # 22.04 而不是 latest：AppImage 連到的 glibc 版本決定了它能在
+          # 多舊的系統上跑。用最新的 Ubuntu 建出來的檔，在使用者那台三年前的
+          # 機器上會直接開不起來。
+          - os: ubuntu-22.04
+            label: Linux
+            args: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux 系統相依（WebKitGTK）
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tauriScript: npm run tauri --
+          args: ${{ matrix.args }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: 'open-pos ${{ github.ref_name }}'
+          releaseDraft: true
+          prerelease: false
+          releaseBody: |
+            ## 安裝
+
+            * **Windows**：下載 `.exe`（NSIS）或 `.msi`，執行後照精靈裝完即可。
+            * **macOS**：下載對應晶片的 `.dmg`。
+            * **Linux**：下載 `.AppImage`，`chmod +x` 之後直接執行。
+
+            第一次啟動會在使用者資料夾建立資料庫，不需要另外裝資料庫或伺服器。
+
+            ## 開始之前
+
+            1. **接一台網路型 ESC/POS 出單機**（TCP 9100），在「出單機」頁按
+               「測試列印」——看得懂那張紙就代表設定正確。
+            2. **設定備份的第二個位置**（一支常插著的隨身碟就夠了）。
+               跟資料庫同一顆硬碟的備份只防誤刪，不防硬碟壞掉。
+            3. 主機請在路由器設**固定 IP 或 DHCP 保留**。
+
+            完整說明見 [README](https://github.com/markku636/open-pos#readme)。
+
+            ⚠️ 這是開發中的版本。拿去做生意之前請先自己跑一天模擬營業，
+            並確認備份與還原你都按過。

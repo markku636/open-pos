@@ -1,0 +1,53 @@
+name: 回報問題
+description: 有東西不對勁
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        謝謝你花時間回報。
+
+        **請務必附上診斷資訊**（下面第一欄）。這是一個地端、離線、
+        給非技術使用者用的系統 —— 沒有診斷資訊的話，維護者沒有任何辦法
+        重現你遇到的狀況，而「今天中午印不出來，現在又好了」這種問題
+        永遠只能停在「不知道」。
+
+        取得方式：App 裡的**系統狀態 → 產生診斷資訊 → 複製全部**。
+        內容不含品名、客人資訊或帳單明細。
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 診斷資訊
+      description: 系統狀態 → 產生診斷資訊 → 複製全部，貼在這裡
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 發生了什麼
+      placeholder: |
+        例如：中午 12:10 左右，結帳按下去之後櫃檯的收據沒有印出來，
+        但廚房那台有出單。過了大概十分鐘又自己好了。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 怎麼重現
+      description: 如果重現得出來的話。重現不出來也請照實說 —— 那本身就是線索。
+      placeholder: |
+        1. 開一張外帶單
+        2. 點兩杯珍奶
+        3. 現金結帳
+        4. …
+
+  - type: input
+    id: printer
+    attributes:
+      label: 出單機型號
+      description: 如果問題跟列印有關。機型與傳輸方式（網路 / USB）都寫一下。
+      placeholder: 例如：EPSON TM-T82III，網路 192.168.1.23:9100
