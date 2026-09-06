@@ -18,8 +18,11 @@ pub mod error;
 pub mod guard;
 pub mod infra;
 pub mod paths;
+pub mod services;
 
 use std::path::{Path, PathBuf};
+
+use core::clock::Stamp;
 
 use error::AppResult;
 use guard::InstanceLock;
@@ -66,7 +69,19 @@ pub async fn boot(opts: BootOptions) -> AppResult<Runtime> {
     })
     .await?;
 
-    tracing::info!(data_dir = %layout.root.display(), "open-pos 啟動完成");
+    // 6. 同步種子資料。權限碼與稅別每次啟動 upsert（升級後新增的會自動出現），
+    //    店家資料只在完全空的資料庫上建立一次。
+    let Db::Sqlite(sqlite) = &db;
+    let now = Stamp::now();
+    let mut uow = sqlite.begin_write().await?;
+    let created_store = services::seed::apply(&mut uow, &now).await?;
+    uow.commit().await?;
+
+    tracing::info!(
+        data_dir = %layout.root.display(),
+        created_store,
+        "open-pos 啟動完成"
+    );
     Ok(Runtime {
         layout,
         db,

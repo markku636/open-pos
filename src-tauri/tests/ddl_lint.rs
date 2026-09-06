@@ -298,3 +298,41 @@ fn migration_filenames_are_ordered_and_prefixed() {
         );
     }
 }
+
+/// `ALTER TABLE ... ADD COLUMN` 的型別也要受同一套規則管。
+///
+/// 這是 `parse_columns` 的盲區：它只掃 CREATE TABLE。而真實專案的 schema 演進
+/// 大部分是 ALTER —— 剛好是「金額欄位漏登記」最容易溜進來的路徑。
+#[test]
+fn altered_columns_are_portable_too() {
+    for (file, raw) in read_migrations() {
+        let sql = strip_comments(&raw);
+        for line in sql.lines() {
+            let t = line.trim().trim_end_matches(';');
+            let upper = t.to_uppercase();
+            let Some(idx) = upper.find("ADD COLUMN ") else {
+                continue;
+            };
+            if !upper.starts_with("ALTER TABLE") {
+                continue;
+            }
+            let rest = &t[idx + "ADD COLUMN ".len()..];
+            let mut it = rest.split_whitespace();
+            let (Some(col), Some(ty)) = (it.next(), it.next()) else {
+                continue;
+            };
+            let ty = ty.to_uppercase();
+            assert!(
+                ALLOWED_TYPES.contains(&ty.as_str()),
+                "{file}：新增欄位 {col} 的型別是 {ty}，只允許 {ALLOWED_TYPES:?}"
+            );
+            let lower = col.to_lowercase();
+            if MONEY_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
+                assert_eq!(
+                    ty, "INTEGER",
+                    "{file}：新增欄位 {col} 看起來是金額或比率，型別必須是 INTEGER"
+                );
+            }
+        }
+    }
+}

@@ -4,9 +4,11 @@
 //! 它是「錢算對了沒」的唯一真相，也是換資料庫後端時**完全不需要動**的部分。
 
 pub mod business_date;
+pub mod clock;
 pub mod ids;
 pub mod money;
 
 pub use business_date::BusinessDate;
+pub use clock::Stamp;
 pub use ids::Id;
 pub use money::{Micros, Money, RoundingPolicy};

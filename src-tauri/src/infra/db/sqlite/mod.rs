@@ -201,6 +201,18 @@ impl SqliteDb {
         Ok(lines.join("\n"))
     }
 
+    /// 這個 binary 內建的最高 migration 版本。
+    /// 還原時用它擋下「用新版備份還原到舊版程式」—— SQLite 不會攔你，
+    /// 只會在某個查詢時噴 no such column，而那時已經開了半天的單。
+    pub fn max_migration_version() -> i64 {
+        MIGRATOR
+            .migrations
+            .iter()
+            .map(|m| m.version)
+            .max()
+            .unwrap_or(0)
+    }
+
     pub async fn close(&self) {
         self.writer.close().await;
         self.reader.close().await;
