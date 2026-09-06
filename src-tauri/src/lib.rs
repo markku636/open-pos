@@ -216,6 +216,12 @@ pub fn run() {
             commands::list_print_jobs,
             commands::retry_print_job,
             commands::cancel_print_job,
+            commands::day_status,
+            commands::open_shift,
+            commands::close_shift,
+            commands::record_cash_movement,
+            commands::x_report,
+            commands::close_business_day,
         ])
         .setup(|app| {
             use tauri::Manager;

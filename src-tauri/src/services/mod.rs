@@ -18,3 +18,4 @@ pub mod printer;
 pub mod rbac;
 pub mod seed;
 pub mod sequence;
+pub mod shift;

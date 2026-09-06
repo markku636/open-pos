@@ -377,3 +377,115 @@ export const printerApi = {
   retryJob: (id: string) => transport.call<void>('retry_print_job', { id }),
   cancelJob: (id: string) => transport.call<void>('cancel_print_job', { id }),
 }
+
+// ---------------------------------------------------------------- 班別與日結
+
+export interface DenomCount {
+  /** 面額，以元為單位（1000 = 一千元鈔）。 */
+  denomination: number
+  count: number
+}
+
+export interface Shift {
+  id: string
+  shiftNo: string
+  businessDate: string
+  status: 'open' | 'closing' | 'closed' | 'reviewed'
+  openedAt: string
+  openedBy: string
+  openingFloat: number
+  closedAt?: string | null
+  /**
+   * ★ 關班之前一定是 null。
+   *
+   * 盲盤的整個重點：先看到應有金額的話，短少的人會直接照抄，
+   * 而那正是「現金差異永遠是零」的原因。
+   */
+  expectedCash?: number | null
+  countedCash?: number | null
+  cashVariance?: number | null
+  note?: string | null
+}
+
+export interface SalesTotals {
+  bills: number
+  subtotal: number
+  discount: number
+  serviceCharge: number
+  rounding: number
+  sales: number
+  tax: number
+  total: number
+}
+
+export interface PaymentTotal {
+  code: string
+  name: string
+  count: number
+  amount: number
+}
+
+export interface CashSummary {
+  openingFloat: number
+  cashSales: number
+  paidIn: number
+  paidOut: number
+  expected: number
+  counted?: number | null
+  /** 正數 = 溢收，負數 = 短少。 */
+  variance?: number | null
+}
+
+export interface VoidTotals {
+  voidedLines: number
+  voidedAmount: number
+}
+
+export interface ShiftReport {
+  shiftNo: string
+  businessDate: string
+  openedAt: string
+  closedAt?: string | null
+  sales: SalesTotals
+  payments: PaymentTotal[]
+  cash: CashSummary
+  voids: VoidTotals
+}
+
+export interface ItemLine {
+  name: string
+  qtyMilli: number
+  amount: number
+}
+
+export interface DayReport {
+  businessDate: string
+  zReportNo: string
+  closedAt: string
+  sales: SalesTotals
+  payments: PaymentTotal[]
+  voids: VoidTotals
+  shifts: Shift[]
+  topItems: ItemLine[]
+}
+
+export interface DayStatus {
+  businessDate: string
+  /** not_started / open / closing / closed / locked */
+  status: string
+  shift: Shift | null
+  closedShifts: number
+}
+
+export const shiftApi = {
+  dayStatus: () => transport.call<DayStatus>('day_status'),
+  open: (openingFloat: number, counts?: DenomCount[], note?: string) =>
+    transport.call<Shift>('open_shift', { req: { openingFloat, counts, note } }),
+  close: (counts: DenomCount[], note?: string) =>
+    transport.call<ShiftReport>('close_shift', { req: { counts, note } }),
+  cashMovement: (kind: 'paid_in' | 'paid_out' | 'drop', amount: number, note?: string) =>
+    transport.call<void>('record_cash_movement', { req: { kind, amount, note } }),
+  /** X 報表。需要 report.daily —— 收銀員預設拿不到，那正是盲盤的前提。 */
+  xReport: () => transport.call<ShiftReport>('x_report'),
+  closeDay: () => transport.call<DayReport>('close_business_day'),
+}

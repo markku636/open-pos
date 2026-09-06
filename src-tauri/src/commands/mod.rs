@@ -245,3 +245,48 @@ pub async fn retry_print_job(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
 pub async fn cancel_print_job(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
     services::printer::cancel_print_job(&ctx, id).await
 }
+
+// ---------------------------------------------------------------- 班別與日結
+//
+// 同樣不掛在區網上：關班、日結、X 報表都是會看到營業額的操作。
+
+#[tauri::command]
+pub async fn day_status(ctx: State<'_, Ctx>) -> AppResult<services::shift::DayStatus> {
+    services::shift::day_status(&ctx).await
+}
+
+#[tauri::command]
+pub async fn open_shift(
+    ctx: State<'_, Ctx>,
+    req: services::shift::OpenShiftReq,
+) -> AppResult<services::shift::ShiftView> {
+    services::shift::open_shift(&ctx, req).await
+}
+
+#[tauri::command]
+pub async fn close_shift(
+    ctx: State<'_, Ctx>,
+    req: services::shift::CloseShiftReq,
+) -> AppResult<services::shift::ShiftReport> {
+    services::shift::close_shift(&ctx, req).await
+}
+
+#[tauri::command]
+pub async fn record_cash_movement(
+    ctx: State<'_, Ctx>,
+    req: services::shift::CashMovementReq,
+) -> AppResult<()> {
+    services::shift::record_cash_movement(&ctx, req).await
+}
+
+/// X 報表：不關班，中途看。需要 report.daily —— 收銀員預設拿不到，
+/// 那正是盲盤的前提。
+#[tauri::command]
+pub async fn x_report(ctx: State<'_, Ctx>) -> AppResult<services::shift::ShiftReport> {
+    services::shift::x_report(&ctx).await
+}
+
+#[tauri::command]
+pub async fn close_business_day(ctx: State<'_, Ctx>) -> AppResult<services::shift::DayReport> {
+    services::shift::close_business_day(&ctx).await
+}

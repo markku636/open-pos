@@ -209,6 +209,9 @@ pub async fn open_order(ctx: &Ctx, req: OpenOrderReq) -> AppResult<OrderView> {
     }
 
     let mut uow = ctx.db.begin_write().await?;
+    // 日結完成的營業日拒絕任何寫入。少了這道鎖，「日結」只是一個時間戳，
+    // 而事後補進來的單會讓已經印出來的 Z 報表對不上。
+    crate::services::shift::ensure_day_open(&mut uow, &business_date.to_iso()).await?;
     let order_no = sequence::next_no(
         &mut uow,
         &store.id,
@@ -328,6 +331,7 @@ pub async fn add_lines(ctx: &Ctx, req: AddLinesReq) -> AppResult<OrderView> {
 
     let mut uow = ctx.db.begin_write().await?;
     let head = load_order_head(&mut uow, &req.order_id).await?;
+    crate::services::shift::ensure_day_open(&mut uow, &head.business_date).await?;
     ensure_open(&head)?;
     ensure_rev(&head, req.expected_rev)?;
 
@@ -390,6 +394,7 @@ pub async fn void_line(
 
     let mut uow = ctx.db.begin_write().await?;
     let head = load_order_head(&mut uow, &order_id).await?;
+    crate::services::shift::ensure_day_open(&mut uow, &head.business_date).await?;
     ensure_open(&head)?;
     ensure_rev(&head, expected_rev)?;
 
@@ -471,6 +476,7 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
 
     let mut uow = ctx.db.begin_write().await?;
     let head = load_order_head(&mut uow, &req.order_id).await?;
+    crate::services::shift::ensure_day_open(&mut uow, &head.business_date).await?;
     ensure_rev(&head, req.expected_rev)?;
     if head.status == "settled" {
         return Err(AppError::Conflict("這張單已經結過帳了".into()));
@@ -509,15 +515,23 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
 
     let bill_no =
         sequence::next_no(&mut uow, &store.id, Scope::Bill, &head.business_date, &now).await?;
+
+    // ★ 每一筆交易都要掛上班別。
+    //
+    //   這是 M1 的硬前提之一：沒有它，過去的 Z 報表永遠重建不出來 ——
+    //   而「哪一班收了多少現金」正是關班盤點唯一能對的東西。
+    //   沒開班時是 None（忘了開班不該讓店家收不了錢），那些單在日結時
+    //   會落在「無班別」裡，看得到。
+    let shift_id = crate::services::shift::current_shift_id(&mut uow).await?;
     let bill_id = Id::new().to_string();
 
     sqlx::query(
-        "INSERT INTO bills (id, order_id, store_id, business_date, bill_no, split_mode,
+        "INSERT INTO bills (id, order_id, store_id, shift_id, business_date, bill_no, split_mode,
                             split_index, split_count, subtotal, discount_total, service_charge,
                             rounding_adjustment, grand_total, sales_amount, tax_amount,
                             paid_total, change_total, status, settled_at, settled_by,
                             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'none', 1, 1, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+         VALUES (?1, ?2, ?3, ?17, ?4, ?5, 'none', 1, 1, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
                  ?13, ?14, 'settled', ?15, ?16, ?15, ?15)",
     )
     .bind(&bill_id)
@@ -536,6 +550,7 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
     .bind(0i64)
     .bind(now.iso())
     .bind(&ctx.actor.user_id)
+    .bind(&shift_id)
     .execute(uow.conn())
     .await?;
 
@@ -567,11 +582,11 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         change += this_change;
 
         sqlx::query(
-            "INSERT INTO payments (id, bill_id, order_id, store_id, business_date,
+            "INSERT INTO payments (id, bill_id, order_id, store_id, shift_id, business_date,
                                    payment_method_id, method_code_snapshot, method_name_snapshot,
                                    amount, tendered, change_amount, status, ref_no,
                                    paid_at, created_by, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'captured', ?12, ?13, ?14, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?15, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'captured', ?12, ?13, ?14, ?13)",
         )
         .bind(Id::new().as_str())
         .bind(&bill_id)
@@ -587,6 +602,7 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         .bind(&p.ref_no)
         .bind(now.iso())
         .bind(&ctx.actor.user_id)
+        .bind(&shift_id)
         .execute(uow.conn())
         .await?;
     }
