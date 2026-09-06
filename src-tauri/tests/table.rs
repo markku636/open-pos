@@ -127,6 +127,7 @@ impl Env {
                     ref_no: None,
                 }],
                 idem_key: open_pos::core::ids::Id::new().to_string(),
+                split: None,
             },
         )
         .await

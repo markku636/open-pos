@@ -80,6 +80,29 @@ export default function OrderScreen({
       .catch((e: AppError) => setError(e.message))
   }, [seat])
 
+  /**
+   * 還沒結完的單。
+   *
+   * ★ 沒有這一條，一張分帳收到一半的外帶單就**消失了** —— 它不掛在任何桌上，
+   *   購物車是畫面狀態，關掉程式或按一下取消它就不在任何地方了，而錢還沒收完。
+   *   內用的單至少還在桌位圖上看得到，外帶的沒有。
+   */
+  const [openOrders, setOpenOrders] = useState<Order[]>([])
+  const refreshOpen = useCallback(() => {
+    orderApi
+      .listOpen()
+      .then(setOpenOrders)
+      .catch(() => {
+        /* 這一條是輔助資訊，抓不到就不顯示，不要蓋掉正在做的事 */
+      })
+  }, [])
+
+  useEffect(() => {
+    refreshOpen()
+    const id = setInterval(refreshOpen, 10_000)
+    return () => clearInterval(id)
+  }, [refreshOpen, order])
+
   useEffect(() => {
     menuApi
       .tree()
@@ -272,6 +295,14 @@ export default function OrderScreen({
           </span>
         </div>
 
+        <OpenOrders
+          orders={openOrders.filter((o) => o.id !== order?.id)}
+          onPick={(o) => {
+            setOrder(o)
+            setError(null)
+          }}
+        />
+
         {error && (
           <div className="m-3 rounded border border-red-800 bg-red-950/60 px-3 py-2 text-sm text-red-200">
             {error}
@@ -341,6 +372,16 @@ export default function OrderScreen({
               未稅 {formatMoney(order.salesAmount)}　稅 {formatMoney(order.taxAmount)}
             </p>
 
+            {/* 分帳收到一半的單長得跟一般的單一模一樣 —— 除非把它寫出來。 */}
+            {order.billedTotal > 0 && order.billedTotal < order.grandTotal && (
+              <p className="mt-2 rounded bg-amber-950/40 px-2 py-1.5 text-center text-sm text-amber-300">
+                已收 {order.billCount} 份 {formatMoney(order.billedTotal)}
+                <span className="ml-2 font-semibold">
+                  還差 {formatMoney(order.grandTotal - order.billedTotal)}
+                </span>
+              </p>
+            )}
+
             <div className="mt-3 flex gap-2">
               <button
                 className="flex-1 rounded bg-slate-800 py-2.5 text-sm hover:bg-slate-700 disabled:opacity-40"
@@ -372,7 +413,9 @@ export default function OrderScreen({
               disabled={busy || order.status === 'settled'}
               onClick={() => setPaying(true)}
             >
-              結帳
+              {order.billedTotal > 0
+                ? `收剩下的 ${formatMoney(order.grandTotal - order.billedTotal)}`
+                : '結帳'}
             </button>
           </div>
         )}
@@ -397,8 +440,24 @@ export default function OrderScreen({
           onCancel={() => setPaying(false)}
           onSettled={(result) => {
             setPaying(false)
-            setOrder(null)
             setError(null)
+
+            // ★ 分帳還沒收完就不能收單。
+            //
+            //   把單清掉、把桌放掉是「結完帳」的動作，而這裡只是收了其中一份。
+            //   收完第一份就讓畫面回到空白，是這個功能最容易犯也最貴的錯：
+            //   剩下的錢會在沒有人記得的情況下走出店門。
+            if (result.remaining > 0) {
+              setOrder(result.order)
+              setError(
+                `已收第 ${result.splitIndex} 份 ${result.billNo}` +
+                  (result.change > 0 ? `　找零 ${formatMoney(result.change)}` : '') +
+                  `　⚠ 這張單還差 ${formatMoney(result.remaining)}`,
+              )
+              return
+            }
+
+            setOrder(null)
             // 結完帳就離開這一桌，否則下一位客人的第一個品項會被加到
             // 剛剛那一桌上。
             onLeaveSeat?.()
@@ -409,6 +468,43 @@ export default function OrderScreen({
           }}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * 還沒結完的單。
+ *
+ * 分帳收到一半的單排在最前面而且是琥珀色：**它是唯一一種「錢已經收了一部分、
+ * 剩下的可能被忘掉」的狀態**，而忘掉的代價是客人走出店門。
+ */
+function OpenOrders({ orders, onPick }: { orders: Order[]; onPick: (o: Order) => void }) {
+  if (orders.length === 0) return null
+  const sorted = [...orders].sort((a, b) => (b.billedTotal > 0 ? 1 : 0) - (a.billedTotal > 0 ? 1 : 0))
+  return (
+    <div className="flex flex-wrap gap-1 border-b border-slate-800 px-3 py-2">
+      <span className="mr-1 self-center text-xs text-slate-600">未結</span>
+      {sorted.map((o) => {
+        const partial = o.billedTotal > 0
+        return (
+          <button
+            key={o.id}
+            className={`rounded px-2 py-1 text-xs ${
+              partial
+                ? 'bg-amber-900/60 text-amber-100 hover:bg-amber-800/60'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+            title={partial ? '這張單分帳還沒收完' : '回到這張單'}
+            onClick={() => onPick(o)}
+          >
+            {o.tableLabel ?? o.orderNo.split('-').pop()}
+            <span className="ml-1.5 font-mono">
+              {formatMoney(partial ? o.grandTotal - o.billedTotal : o.grandTotal)}
+            </span>
+            {partial && <span className="ml-1">未收</span>}
+          </button>
+        )
+      })}
     </div>
   )
 }

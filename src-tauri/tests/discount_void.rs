@@ -289,6 +289,7 @@ async fn voiding_after_settlement_leaves_a_trail() {
                     ref_no: None,
                 }],
                 idem_key: "settle-1".into(),
+                split: None,
             },
         )
         .await

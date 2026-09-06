@@ -164,6 +164,8 @@ export interface OrderLine {
   qtyMilli: number
   unitPrice: number
   amount: number
+  /** 分項分帳時，這一行已經被誰結掉了。 */
+  paid: boolean
 }
 
 export interface Order {
@@ -186,12 +188,45 @@ export interface Order {
   taxAmount: number
   paidTotal: number
   changeTotal: number
+  /** 已經開出去的帳單收了多少。分帳到一半時 < grandTotal。 */
+  billedTotal: number
+  /** 已經結了幾份。 */
+  billCount: number
+  /** even / by_item / by_amount。還沒分過是 null。 */
+  splitMode: string | null
+  /** 平分時說好要分幾份。 */
+  splitCount: number | null
 }
 
 export interface SettleResult {
   order: Order
   billNo: string
   change: number
+  /** 這張單還有多少沒結。> 0 代表**還不能讓客人走**。 */
+  remaining: number
+  /** 這是第幾份。 */
+  splitIndex: number
+}
+
+/**
+ * 分帳的一份。
+ *
+ * 三個模式對應櫃檯真的會聽到的三句話：
+ * 「我們四個平分」/「我先出 500」/「我的只有那碗麵」。
+ */
+export type SplitReq =
+  | { mode: 'even'; parts: number }
+  | { mode: 'amount'; amount: number }
+  | { mode: 'items'; lineIds: string[] }
+
+export interface SplitPreview {
+  /** 這一份應收多少。**由 Rust 算，前端只負責顯示。** */
+  due: number
+  index: number
+  count: number | null
+  orderTotal: number
+  billed: number
+  remainingAfter: number
 }
 
 export interface PaymentMethod {
@@ -236,10 +271,19 @@ export const orderApi = {
     transport.call<Order>('add_lines', { req: { orderId, expectedRev, lines } }),
   voidLine: (orderId: string, expectedRev: number, lineId: string) =>
     transport.call<Order>('void_line', { orderId, expectedRev, lineId, reasonId: null }),
-  settle: (orderId: string, expectedRev: number, payments: PaymentInput[]) =>
+  settle: (orderId: string, expectedRev: number, payments: PaymentInput[], split?: SplitReq) =>
     transport.call<SettleResult>('settle', {
-      req: { orderId, expectedRev, payments, idemKey: newIdemKey() },
+      req: { orderId, expectedRev, payments, idemKey: newIdemKey(), split: split ?? null },
     }),
+  /**
+   * 分帳試算。
+   *
+   * 「四個人分 101 元」的答案是 26/25/25/25 —— 最大餘數法。在這裡再實作一次
+   * 同一套進位規則，就是在等兩邊哪天不一樣，而不一樣的那天螢幕與資料庫會
+   * 差一元、沒有人找得到原因。本機 IPC 往返不到 1ms。
+   */
+  previewSplit: (orderId: string, split: SplitReq | null) =>
+    transport.call<SplitPreview>('preview_split', { orderId, split }),
   paymentMethods: () => transport.call<PaymentMethod[]>('payment_methods'),
 }
 

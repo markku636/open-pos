@@ -440,6 +440,7 @@ async fn the_customer_receipt_carries_the_numbers_that_must_match_the_invoice() 
                 ref_no: None,
             }],
             idem_key: format!("test-settle-{}", o.rev),
+            split: None,
         },
     )
     .await

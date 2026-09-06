@@ -161,6 +161,7 @@ async fn takeout_order_from_open_to_cash_payment() {
                 ref_no: None,
             }],
             idem_key: "idem-main-1".into(),
+            split: None,
         },
     )
     .await
@@ -299,6 +300,7 @@ async fn resending_a_settlement_does_not_charge_twice() {
             ref_no: None,
         }],
         idem_key: "same-key".into(),
+        split: None,
     };
 
     let first = order::settle(&e.ctx, req()).await.unwrap();
@@ -347,6 +349,7 @@ async fn underpayment_is_rejected_with_the_shortfall_spelled_out() {
                 ref_no: None,
             }],
             idem_key: "short-1".into(),
+            split: None,
         },
     )
     .await
@@ -383,6 +386,7 @@ async fn a_settled_order_cannot_be_modified() {
                 ref_no: None,
             }],
             idem_key: "lock-1".into(),
+            split: None,
         },
     )
     .await
@@ -543,6 +547,7 @@ async fn mixed_payment_puts_the_change_on_the_cash_leg_only() {
                 },
             ],
             idem_key: "mixed-1".into(),
+            split: None,
         },
     )
     .await
@@ -591,6 +596,7 @@ async fn a_card_cannot_give_change() {
                 ref_no: None,
             }],
             idem_key: "card-1".into(),
+            split: None,
         },
     )
     .await
@@ -628,6 +634,7 @@ async fn entering_only_the_tendered_amount_also_works() {
                 ref_no: None,
             }],
             idem_key: "tender-1".into(),
+            split: None,
         },
     )
     .await

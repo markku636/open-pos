@@ -222,6 +222,7 @@ pub fn run() {
             commands::delete_table,
             commands::close_table,
             commands::seed_demo,
+            commands::preview_split,
             commands::get_order,
             commands::list_open_orders,
             commands::payment_methods,

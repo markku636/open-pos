@@ -80,6 +80,27 @@ pub struct TicketData {
     /// 重印次數。> 0 時要印在單上 —— 重印收據可以拿去做假帳，
     /// 所以必須讓拿到單的人看得出這是第幾次印。
     pub reprint_seq: u32,
+    /// 分帳時的那一段。整單結帳是 None。
+    pub split: Option<SplitLabel>,
+}
+
+/// 分帳的收據要多印的東西。
+///
+/// **「還差多少」是這裡最重要的一個數字。** 分帳最常見的意外是「以為收完了」
+/// —— 三個人各付各的，第三個人走掉了而沒有人發現。所以只要還沒收完，
+/// 收據上就要印出來，而且要印得很明顯。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitLabel {
+    pub index: i64,
+    /// 總共幾份。按金額分帳時要收到最後一筆才知道。
+    pub count: Option<i64>,
+    /// 這一份收多少。
+    pub part_total: i64,
+    /// 整張單多少。
+    pub order_total: i64,
+    /// 收完這一份之後還差多少。
+    pub remaining: i64,
 }
 
 fn qty_label(qty_milli: i64) -> String {
@@ -175,6 +196,17 @@ pub fn customer_receipt(data: &TicketData, paper: PaperWidth) -> ReceiptDoc {
         );
     }
 
+    if let Some(sp) = &data.split {
+        doc = doc.styled(
+            match sp.count {
+                Some(n) => format!("── 分帳 {}／{} ──", sp.index, n),
+                // 還不知道總共幾份的時候不要編一個出來。
+                None => format!("── 分帳 第 {} 筆 ──", sp.index),
+            },
+            TextStyle::centered(),
+        );
+    }
+
     doc = doc.rule();
 
     for l in &data.lines {
@@ -199,7 +231,10 @@ pub fn customer_receipt(data: &TicketData, paper: PaperWidth) -> ReceiptDoc {
             vec![3, 2],
         );
     };
-    row("小計", data.subtotal);
+    // 分帳單上「小計」跟「本次應付」是同一個數字，印兩次只是讓人多讀一行。
+    if data.split.is_none() {
+        row("小計", data.subtotal);
+    }
     if data.discount_total != 0 {
         row("折扣", -data.discount_total);
     }
@@ -210,10 +245,23 @@ pub fn customer_receipt(data: &TicketData, paper: PaperWidth) -> ReceiptDoc {
         row("進位調整", data.rounding_adjustment);
     }
 
+    if let Some(sp) = &data.split {
+        // 分帳的收據上「合計」是**這個人要付的錢**，所以整單金額要另外列出來 ——
+        // 少了它，客人無從判斷自己那一份算得對不對。
+        row("全單", sp.order_total);
+    }
+
     doc = doc
         .rule()
         .columns(
-            vec![Cell::left("合計"), Cell::right(money(data.grand_total))],
+            vec![
+                Cell::left(if data.split.is_some() {
+                    "本次應付"
+                } else {
+                    "合計"
+                }),
+                Cell::right(money(data.grand_total)),
+            ],
             vec![3, 2],
         )
         // 稅額要印出來：客人拿這張去報帳時會用到，而且未稅與稅額分開列
@@ -238,6 +286,18 @@ pub fn customer_receipt(data: &TicketData, paper: PaperWidth) -> ReceiptDoc {
             doc = doc.columns(
                 vec![Cell::left("找零"), Cell::right(money(data.change))],
                 vec![3, 2],
+            );
+        }
+    }
+
+    // ★ 分帳最貴的意外是「以為收完了」：三個人各付各的，第三個人走掉而
+    //   沒有人發現。所以只要還沒收完，就把它印在收據最下面 ——
+    //   店員撕單的時候一定會看到那一行。
+    if let Some(sp) = &data.split {
+        if sp.remaining > 0 {
+            doc = doc.feed(1).styled(
+                format!("※ 這張單還差 {} 元 ※", money(sp.remaining)),
+                TextStyle::centered(),
             );
         }
     }
@@ -358,6 +418,7 @@ mod tests {
             station: Some("熱炒區".into()),
             reason: TicketReason::NewOrder,
             reprint_seq: 0,
+            split: None,
         }
     }
 
@@ -396,6 +457,81 @@ mod tests {
         let out = PlainTextRenderer::with_style_marks()
             .render_to_string(&kitchen_ticket(&sample(), PaperWidth::Mm80));
         assert!(out.contains("[   ★ 不要香菜]"), "備註要反白：\n{out}");
+    }
+
+    /// ★ 分帳的收據要說清楚三件事：這是第幾份、這一份收多少、整張單還差多少。
+    ///
+    /// 第三件是最重要的。分帳最貴的意外是「以為收完了」—— 三個人各付各的，
+    /// 第三個人走掉而沒有人發現。所以只要還沒收完，就要印在單上。
+    #[test]
+    fn a_split_receipt_says_how_much_is_still_owed() {
+        let mut d = sample();
+        d.split = Some(SplitLabel {
+            index: 2,
+            count: Some(3),
+            part_total: 70,
+            order_total: 209,
+            remaining: 69,
+        });
+        d.grand_total = 70;
+        d.sales_amount = 67;
+        d.tax_amount = 3;
+        let out = render(&customer_receipt(&d, PaperWidth::Mm80));
+        assert!(out.contains("分帳 2／3"), "要看得出是第幾份：\n{out}");
+        assert!(
+            out.contains("本次應付"),
+            "「合計」在分帳單上會被誤讀成整單：\n{out}"
+        );
+        assert!(
+            out.contains("全單"),
+            "整單金額也要在，客人才對得起來：\n{out}"
+        );
+        assert!(
+            !out.contains("小計"),
+            "分帳單上「小計」跟「本次應付」是同一個數字，印兩次只是多一行要讀的東西：\n{out}"
+        );
+        assert!(out.contains("209"));
+        assert!(out.contains("還差 69"), "★ 沒收完一定要印出來：\n{out}");
+    }
+
+    /// 還不知道總共幾份的時候不要編一個數字出來。
+    #[test]
+    fn an_open_ended_split_does_not_invent_a_denominator() {
+        let mut d = sample();
+        d.split = Some(SplitLabel {
+            index: 1,
+            count: None,
+            part_total: 100,
+            order_total: 209,
+            remaining: 109,
+        });
+        let out = render(&customer_receipt(&d, PaperWidth::Mm80));
+        assert!(
+            out.contains("分帳 第 1 筆"),
+            "
+{out}"
+        );
+        assert!(!out.contains("／"), "沒有分母就不要印分數：\n{out}");
+    }
+
+    /// 收完最後一份就不該再嚇人。
+    #[test]
+    fn the_last_split_receipt_has_no_warning() {
+        let mut d = sample();
+        d.split = Some(SplitLabel {
+            index: 3,
+            count: Some(3),
+            part_total: 69,
+            order_total: 209,
+            remaining: 0,
+        });
+        let out = render(&customer_receipt(&d, PaperWidth::Mm80));
+        assert!(
+            out.contains("分帳 3／3"),
+            "
+{out}"
+        );
+        assert!(!out.contains("還差"), "收完了就不要再印欠款：\n{out}");
     }
 
     #[test]

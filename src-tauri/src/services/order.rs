@@ -88,6 +88,34 @@ pub struct SettleReq {
     pub expected_rev: i64,
     pub payments: Vec<PaymentReq>,
     pub idem_key: String,
+    /// 這一次只結一部分。省略＝把還沒結的全部結掉。
+    #[serde(default)]
+    pub split: Option<SplitReq>,
+}
+
+/// 分帳：一張訂單拆成好幾張帳單，各自結清。
+///
+/// 三個模式對應櫃檯真的會聽到的三句話：
+///
+/// * `Even`   —— 「我們四個平分」
+/// * `Amount` —— 「我先出 500，剩下他付」
+/// * `Items`  —— 「我的只有那碗麵」
+///
+/// # 為什麼不是「拆成很多張訂單」
+///
+/// 因為廚房已經照那張單做菜了。拆訂單會讓廚房單、桌位、加點全部要跟著重新
+/// 對應，而分帳其實只是**收錢的方式**不同 —— 賣出去的東西一件都沒變。
+/// 所以拆的是 `bills`，不是 `orders`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "camelCase")]
+pub enum SplitReq {
+    /// 均分成 `parts` 份。這一次結的是還沒結的第一份。
+    Even { parts: i64 },
+    /// 這一次收 `amount` 元。總共會有幾份，要收到最後一筆才知道。
+    Amount { amount: i64 },
+    /// 這一次結這幾行。
+    #[serde(rename_all = "camelCase")]
+    Items { line_ids: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +130,8 @@ pub struct OrderLineView {
     pub qty_milli: i64,
     pub unit_price: i64,
     pub amount: i64,
+    /// 分項分帳時，這一行是不是已經被誰結掉了。
+    pub paid: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +156,15 @@ pub struct OrderView {
     pub tax_amount: i64,
     pub paid_total: i64,
     pub change_total: i64,
+    /// 已經開出去的帳單收了多少（分帳用）。整單結帳時等於 grand_total。
+    pub billed_total: i64,
+    /// 已經結了幾份。
+    pub bill_count: i64,
+    /// 這張單用哪一種分法（even / by_item / by_amount）。還沒分過是 None。
+    pub split_mode: Option<String>,
+    /// 平分時說好要分幾份。畫面要靠它把份數鎖住 —— 讓收銀員重選一次再被
+    /// 伺服器擋下來，是把系統已經知道的事丟給人記。
+    pub split_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +173,10 @@ pub struct SettleResult {
     pub order: OrderView,
     pub bill_no: String,
     pub change: i64,
+    /// 這張訂單還有多少沒結。分帳時 > 0，代表**還不能讓客人走**。
+    pub remaining: i64,
+    /// 這是第幾份。沒分帳時是 1。
+    pub split_index: i64,
 }
 
 // ---------------------------------------------------------------- 店家設定
@@ -801,6 +844,9 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
 
     let totals = recompute(&mut uow, &req.order_id, &store, head.channel, &now).await?;
     let grand_total = totals.grand_total.0;
+    // 這一次要收多少。沒分帳的話就是「還沒結的全部」。
+    let plan = plan_split(&mut uow, &req.order_id, grand_total, req.split.as_ref()).await?;
+    let due = plan.due;
 
     // 付款驗證。
     //
@@ -820,10 +866,10 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         .iter()
         .map(|p| p.amount.max(p.tendered.unwrap_or(0)))
         .sum();
-    if offered < grand_total {
+    if offered < due {
         return Err(AppError::Validation(format!(
-            "收款金額 {offered} 元不足應收的 {grand_total} 元，還差 {} 元",
-            grand_total - offered
+            "收款金額 {offered} 元不足應收的 {due} 元，還差 {} 元",
+            due - offered
         )));
     }
 
@@ -839,13 +885,37 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
     let shift_id = crate::services::shift::current_shift_id(&mut uow).await?;
     let bill_id = Id::new().to_string();
 
+    // 稅額是**這一張帳單自己**拆的，不是整單稅額的幾分之幾。
+    //
+    // 每一張帳單就是一張發票，而發票上的 `銷售額 + 稅額 = 總額` 是財政部的
+    // 硬檢核 —— 分攤整單稅額會讓某一份差一元而整批退件。各拆各的，
+    // 加總起來與整單稅額差個一兩元是正常且正確的。
+    let (part_sales, part_tax) = if plan.mode == "none" {
+        (totals.sales_amount.0, totals.tax_amount.0)
+    } else {
+        let (s, t) = crate::core::money::split_tax_inclusive(Money(due), store.tax_rate_bp);
+        (s.0, t.0)
+    };
+    let (part_subtotal, part_discount, part_service, part_rounding) = if plan.mode == "none" {
+        (
+            totals.subtotal.0,
+            totals.order_discount_total.0 + totals.line_discount_total.0,
+            totals.service_charge.0,
+            totals.rounding_adjustment.0,
+        )
+    } else {
+        // 分帳的一份沒有自己的「小計 / 折扣 / 服務費」—— 那些是整張單的事。
+        // 硬要分攤只會造出一堆對不起來的數字。
+        (due, 0, 0, 0)
+    };
+
     sqlx::query(
         "INSERT INTO bills (id, order_id, store_id, shift_id, business_date, bill_no, split_mode,
                             split_index, split_count, subtotal, discount_total, service_charge,
                             rounding_adjustment, grand_total, sales_amount, tax_amount,
                             paid_total, change_total, status, settled_at, settled_by,
                             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?17, ?4, ?5, 'none', 1, 1, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+         VALUES (?1, ?2, ?3, ?17, ?4, ?5, ?18, ?19, ?20, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
                  ?13, ?14, 'settled', ?15, ?16, ?15, ?15)",
     )
     .bind(&bill_id)
@@ -853,24 +923,42 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
     .bind(&store.id)
     .bind(&head.business_date)
     .bind(&bill_no)
-    .bind(totals.subtotal.0)
-    .bind(totals.order_discount_total.0 + totals.line_discount_total.0)
-    .bind(totals.service_charge.0)
-    .bind(totals.rounding_adjustment.0)
-    .bind(grand_total)
-    .bind(totals.sales_amount.0)
-    .bind(totals.tax_amount.0)
+    .bind(part_subtotal)
+    .bind(part_discount)
+    .bind(part_service)
+    .bind(part_rounding)
+    .bind(due)
+    .bind(part_sales)
+    .bind(part_tax)
     .bind(0i64) // 實收與找零在跑完付款迴圈之後回填
     .bind(0i64)
     .bind(now.iso())
     .bind(&ctx.actor.user_id)
     .bind(&shift_id)
+    .bind(plan.mode)
+    .bind(plan.index)
+    .bind(plan.count.unwrap_or(0))
     .execute(uow.conn())
     .await?;
 
+    // 分項分帳要記下這一份含哪幾行 —— 否則下一份無從知道哪些已經結過。
+    for line_id in &plan.line_ids {
+        sqlx::query(
+            "INSERT INTO bill_lines (id, bill_id, order_item_id, qty_milli, amount, created_at)
+             SELECT ?1, ?2, oi.id, oi.qty_milli, oi.taxable_amount, ?4
+               FROM order_items oi WHERE oi.id = ?3",
+        )
+        .bind(Id::new().as_str())
+        .bind(&bill_id)
+        .bind(line_id)
+        .bind(now.iso())
+        .execute(uow.conn())
+        .await?;
+    }
+
     let mut change = 0i64;
     let mut paid = 0i64;
-    let mut remaining = grand_total;
+    let mut remaining = due;
     for p in &req.payments {
         let method = load_payment_method(&mut uow, &store.id, &p.method_code).await?;
         let tendered = p.tendered.unwrap_or(p.amount);
@@ -932,17 +1020,48 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         .execute(uow.conn())
         .await?;
 
-    sqlx::query(
-        "UPDATE orders SET status = 'settled', rev = rev + 1, paid_total = ?2, change_total = ?3,
-                           settled_at = ?4, updated_at = ?4
-          WHERE id = ?1",
-    )
-    .bind(&req.order_id)
-    .bind(paid)
-    .bind(change)
-    .bind(now.iso())
-    .execute(uow.conn())
-    .await?;
+    // ★ 只有付清了整張單才算 settled。
+    //
+    // 分帳到一半就把訂單標成已結，是這個功能最容易犯、也最貴的錯：那張單會
+    // 從「未結」清單與桌位圖上消失，而剩下的錢還沒收。所以這裡把兩件事分開：
+    // 每一份各自入帳（累加 paid_total），整張單的狀態只在最後一份時才動。
+    if plan.is_last {
+        sqlx::query(
+            "UPDATE orders SET status = 'settled', rev = rev + 1,
+                               paid_total = paid_total + ?2, change_total = change_total + ?3,
+                               settled_at = ?4, updated_at = ?4
+              WHERE id = ?1",
+        )
+        .bind(&req.order_id)
+        .bind(paid)
+        .bind(change)
+        .bind(now.iso())
+        .execute(uow.conn())
+        .await?;
+
+        // 每一份印出去的時候還不知道總共幾份（「我先出 500」的下一句可能是
+        // 「剩下他付」也可能是「再拆兩份」）。收到最後一筆才補齊，讓報表與
+        // 日後查帳看到的是完整的 n/N。
+        if plan.index > 1 {
+            sqlx::query("UPDATE bills SET split_count = ?2 WHERE order_id = ?1")
+                .bind(&req.order_id)
+                .bind(plan.index)
+                .execute(uow.conn())
+                .await?;
+        }
+    } else {
+        sqlx::query(
+            "UPDATE orders SET rev = rev + 1, paid_total = paid_total + ?2,
+                               change_total = change_total + ?3, updated_at = ?4
+              WHERE id = ?1",
+        )
+        .bind(&req.order_id)
+        .bind(paid)
+        .bind(change)
+        .bind(now.iso())
+        .execute(uow.conn())
+        .await?;
+    }
 
     audit::write_in(
         &mut uow,
@@ -959,9 +1078,17 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         &mut uow,
         &req.order_id,
         seq,
-        "settled",
+        if plan.is_last {
+            "settled"
+        } else {
+            "part_settled"
+        },
         Some(&head.status),
-        Some("settled"),
+        if plan.is_last {
+            Some("settled")
+        } else {
+            Some(&head.status)
+        },
         ctx,
         &now,
     )
@@ -972,7 +1099,7 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
     // 一桌可以有很多張單（分開結帳、續攤、加點開新單）。看到「結完帳就關檯」
     // 很直覺，但它會把同桌其他還沒結的單留在一個已關的 session 上：那些單
     // 從桌位圖上消失，帳卻還在。桌位圖上看不到的帳等於收不到的錢。
-    if let Some(sid) = &head.table_session_id {
+    if let (true, Some(sid)) = (plan.is_last, &head.table_session_id) {
         let still_open: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM orders
               WHERE table_session_id = ?1 AND id <> ?2
@@ -996,13 +1123,27 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         }
     }
 
-    enqueue_receipt(&mut uow, ctx, &store, &req.order_id, &bill_no, change, &now).await?;
+    let remaining_after = grand_total - billed_so_far(&mut uow, &req.order_id).await?;
+    enqueue_receipt(
+        &mut uow,
+        ctx,
+        &store,
+        &req.order_id,
+        &bill_no,
+        change,
+        &plan,
+        remaining_after,
+        &now,
+    )
+    .await?;
 
     let order = load_order_view(&mut uow, &req.order_id).await?;
     let result = SettleResult {
         order,
         bill_no,
         change,
+        remaining: remaining_after,
+        split_index: plan.index,
     };
     save_idempotent(&mut uow, &req.idem_key, "settle", &result, &now).await?;
     uow.commit().await?;
@@ -1523,9 +1664,21 @@ async fn load_order_view(uow: &mut SqliteUow, id: &str) -> AppResult<OrderView> 
     .fetch_all(uow.conn())
     .await?;
 
+    // 分項分帳已經結掉的那幾行。畫面上要能把它們畫成「已結」——
+    // 不然第二個人會再選一次，然後才被伺服器擋下來。
+    let paid_lines: Vec<String> = sqlx::query_scalar(
+        "SELECT bl.order_item_id FROM bill_lines bl
+           JOIN bills b ON b.id = bl.bill_id
+          WHERE b.order_id = ?1 AND b.status = 'settled'",
+    )
+    .bind(id)
+    .fetch_all(uow.conn())
+    .await?;
+
     let mut lines = Vec::with_capacity(items.len());
     for it in &items {
         let line_id: String = it.get("id");
+        let line_id_for_paid = line_id.clone();
         let options: Vec<String> = sqlx::query_scalar(
             "SELECT name_snapshot FROM order_item_modifiers WHERE order_item_id = ?1 ORDER BY id",
         )
@@ -1543,8 +1696,20 @@ async fn load_order_view(uow: &mut SqliteUow, id: &str) -> AppResult<OrderView> 
             qty_milli: it.get("qty_milli"),
             unit_price: it.get("unit_price"),
             amount: it.get("taxable_amount"),
+            paid: paid_lines.contains(&line_id_for_paid),
         });
     }
+
+    // 分帳進度。畫面要靠它算出「還差多少」與下一份是第幾份。
+    let bills = sqlx::query(
+        "SELECT COALESCE(SUM(grand_total), 0) AS billed, COUNT(*) AS n,
+                MAX(CASE WHEN split_mode <> 'none' THEN split_mode END) AS mode,
+                MAX(CASE WHEN split_count > 0 THEN split_count END) AS parts
+           FROM bills WHERE order_id = ?1 AND status = 'settled'",
+    )
+    .bind(id)
+    .fetch_one(uow.conn())
+    .await?;
 
     Ok(OrderView {
         id: r.get("id"),
@@ -1565,6 +1730,59 @@ async fn load_order_view(uow: &mut SqliteUow, id: &str) -> AppResult<OrderView> 
         tax_amount: r.get("tax_amount"),
         paid_total: r.get("paid_total"),
         change_total: r.get("change_total"),
+        billed_total: bills.get("billed"),
+        bill_count: bills.get("n"),
+        split_mode: bills.get("mode"),
+        split_count: bills.get("parts"),
+    })
+}
+
+/// 分帳試算：這一份要收多少。
+///
+/// # 為什麼要多一支指令，而不是在前端算
+///
+/// 因為「四個人分 101 元」的答案是 26/25/25/25，而它是**最大餘數法**算出來的。
+/// 在 TypeScript 再實作一次同一套進位規則，就是在等兩邊哪天不一樣 ——
+/// 而不一樣的那天，螢幕上的金額與資料庫裡的金額會差一元，沒有人找得到原因。
+/// 本機 IPC 往返不到 1ms，遠比一個對不起來的收銀系統便宜。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitPreview {
+    /// 這一份應收多少。
+    pub due: i64,
+    pub index: i64,
+    pub count: Option<i64>,
+    pub order_total: i64,
+    /// 已經收掉多少。
+    pub billed: i64,
+    /// 收完這一份還差多少。
+    pub remaining_after: i64,
+}
+
+pub async fn preview_split(
+    ctx: &Ctx,
+    order_id: String,
+    split: Option<SplitReq>,
+) -> AppResult<SplitPreview> {
+    // 唯讀，但 plan_split 吃 UnitOfWork（分帳計畫要看得到同一份快照），
+    // 所以開一個交易再丟掉。
+    let mut uow = ctx.db.begin_write().await?;
+    let grand_total: i64 = sqlx::query_scalar("SELECT grand_total FROM orders WHERE id = ?1")
+        .bind(&order_id)
+        .fetch_optional(uow.conn())
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("找不到訂單 {order_id}")))?;
+    let billed = billed_so_far(&mut uow, &order_id).await?;
+    let plan = plan_split(&mut uow, &order_id, grand_total, split.as_ref()).await?;
+    uow.rollback().await?;
+
+    Ok(SplitPreview {
+        due: plan.due,
+        index: plan.index,
+        count: plan.count,
+        order_total: grand_total,
+        billed,
+        remaining_after: grand_total - billed - plan.due,
     })
 }
 
@@ -1676,6 +1894,8 @@ async fn build_ticket_data(
                     qty_milli: it.get("qty_milli"),
                     unit_price: it.get("unit_price"),
                     amount: it.get("taxable_amount"),
+                    // 這條路徑是印廚房單用的，出單機不在乎誰付了錢。
+                    paid: false,
                 });
             }
             // 行號排序：廚房單上的順序要跟客人點的順序一樣。
@@ -1727,6 +1947,7 @@ async fn build_ticket_data(
         station: None,
         reason,
         reprint_seq: 0,
+        split: None,
     })
 }
 
@@ -1801,6 +2022,7 @@ async fn enqueue_kitchen_ticket(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn enqueue_receipt(
     uow: &mut SqliteUow,
     _ctx: &Ctx,
@@ -1808,15 +2030,55 @@ async fn enqueue_receipt(
     order_id: &str,
     bill_no: &str,
     change: i64,
+    plan: &SplitPlan,
+    remaining_after: i64,
     now: &Stamp,
 ) -> AppResult<()> {
-    let mut data = build_ticket_data(uow, store, order_id, TicketReason::Settle, now, None).await?;
+    // 分項分帳的收據只印**這個人點的東西**。印整桌的話，付錢的那位會
+    // 對著一張跟自己金額對不起來的明細，然後開始問。
+    let only: Option<std::collections::HashSet<String>> = if plan.mode == "by_item" {
+        Some(plan.line_ids.iter().cloned().collect())
+    } else {
+        None
+    };
+    let mut data = build_ticket_data(
+        uow,
+        store,
+        order_id,
+        TicketReason::Settle,
+        now,
+        only.as_ref(),
+    )
+    .await?;
     data.change = change;
+    if plan.mode != "none" {
+        let (sales, tax) =
+            crate::core::money::split_tax_inclusive(Money(plan.due), store.tax_rate_bp);
+        data.split = Some(crate::receipt::templates::SplitLabel {
+            index: plan.index,
+            count: plan.count,
+            part_total: plan.due,
+            order_total: data.grand_total,
+            remaining: remaining_after,
+        });
+        // 版型層只認 `grand_total`，所以把「這一份的錢」換進去，整單金額
+        // 交給 SplitLabel 帶。小計／折扣／服務費歸零：那些是整張單的事，
+        // 印在一份帳單上只會讓兩邊的數字對不起來。
+        data.grand_total = plan.due;
+        data.sales_amount = sales.0;
+        data.tax_amount = tax.0;
+        data.subtotal = plan.due;
+        data.discount_total = 0;
+        data.service_charge = 0;
+        data.rounding_adjustment = 0;
+    }
     let payments = sqlx::query(
         "SELECT method_name_snapshot, amount, tendered
-           FROM payments WHERE order_id = ?1 ORDER BY id",
+           FROM payments WHERE bill_id = (SELECT id FROM bills WHERE bill_no = ?2)
+             AND order_id = ?1 ORDER BY id",
     )
     .bind(order_id)
+    .bind(bill_no)
     .fetch_all(uow.conn())
     .await?;
     data.payments = payments
@@ -1842,6 +2104,237 @@ async fn enqueue_receipt(
     let doc = templates::customer_receipt(&data, PaperWidth::Mm80);
     let payload = serde_json::json!({ "orderId": order_id, "billNo": bill_no, "doc": doc });
     enqueue_print(uow, "print.receipt", &business_date, &payload, now).await
+}
+
+/// 這一次要收多少、算第幾份。
+struct SplitPlan {
+    /// 這一份應收多少。
+    due: i64,
+    index: i64,
+    /// 總共幾份。按金額分帳時收到最後一筆才知道，所以是 Option。
+    count: Option<i64>,
+    /// bills.split_mode
+    mode: &'static str,
+    /// 只有 by_item 有：這一份含哪幾行。
+    line_ids: Vec<String>,
+    /// 結完這一份，整張單就付清了。
+    is_last: bool,
+}
+
+/// 算出這一次結帳要收多少。
+///
+/// # 這裡唯一不能出錯的事
+///
+/// **Σ 每一份 == 訂單總額，嚴格相等。** 差一元的話，不是店家吃掉就是客人多付，
+/// 而且它會出現在日結的現金差異裡卻找不到原因。所以平分走最大餘數法
+/// （四個人分 101 是 26/25/25/25，不是四個 25），按品項走每一行的
+/// `taxable_amount`（定價引擎保證它的加總嚴格等於總額）。
+async fn plan_split(
+    uow: &mut SqliteUow,
+    order_id: &str,
+    grand_total: i64,
+    split: Option<&SplitReq>,
+) -> AppResult<SplitPlan> {
+    let row = sqlx::query(
+        "SELECT COALESCE(SUM(grand_total), 0) AS billed, COUNT(*) AS n
+           FROM bills WHERE order_id = ?1 AND status = 'settled'",
+    )
+    .bind(order_id)
+    .fetch_one(uow.conn())
+    .await?;
+    let billed: i64 = row.get("billed");
+    let done: i64 = row.get("n");
+    let remaining = grand_total - billed;
+    if remaining <= 0 {
+        return Err(AppError::Conflict("這張單已經結清了".into()));
+    }
+
+    let Some(split) = split else {
+        // 沒指定就是「把剩下的全部結掉」。分帳分到一半按一般結帳，
+        // 收的就是尾款 —— 這正是店員最後那一下會做的事。
+        return Ok(SplitPlan {
+            due: remaining,
+            index: done + 1,
+            count: Some(done + 1),
+            mode: if done > 0 { "by_amount" } else { "none" },
+            line_ids: vec![],
+            is_last: true,
+        });
+    };
+
+    match split {
+        SplitReq::Even { parts } => {
+            let parts = *parts;
+            if parts < 2 {
+                return Err(AppError::Validation("平分至少要兩份".into()));
+            }
+            if done >= parts {
+                return Err(AppError::Conflict(format!(
+                    "這張單已經分成 {done} 份結完了"
+                )));
+            }
+            // 換模式要擋下來：混著分會讓「第幾份」對不上金額。
+            ensure_same_split_mode(uow, order_id, done, "even", Some(parts)).await?;
+
+            let shares = crate::core::money::allocate(grand_total, &vec![1; parts as usize]);
+            let due = shares[done as usize];
+            Ok(SplitPlan {
+                due,
+                index: done + 1,
+                count: Some(parts),
+                mode: "even",
+                line_ids: vec![],
+                is_last: done + 1 == parts,
+            })
+        }
+        SplitReq::Amount { amount } => {
+            let amount = *amount;
+            if amount <= 0 {
+                return Err(AppError::Validation("分帳金額要大於 0".into()));
+            }
+            if amount > remaining {
+                return Err(AppError::Validation(format!(
+                    "這張單只剩 {remaining} 元沒結，收不了 {amount} 元"
+                )));
+            }
+            ensure_same_split_mode(uow, order_id, done, "by_amount", None).await?;
+            Ok(SplitPlan {
+                due: amount,
+                index: done + 1,
+                count: if amount == remaining {
+                    Some(done + 1)
+                } else {
+                    None
+                },
+                mode: "by_amount",
+                line_ids: vec![],
+                is_last: amount == remaining,
+            })
+        }
+        SplitReq::Items { line_ids } => {
+            if line_ids.is_empty() {
+                return Err(AppError::Validation("請先選要結哪幾項".into()));
+            }
+            ensure_same_split_mode(uow, order_id, done, "by_item", None).await?;
+
+            let paid: Vec<String> = sqlx::query_scalar(
+                "SELECT bl.order_item_id FROM bill_lines bl
+                   JOIN bills b ON b.id = bl.bill_id
+                  WHERE b.order_id = ?1 AND b.status = 'settled'",
+            )
+            .bind(order_id)
+            .fetch_all(uow.conn())
+            .await?;
+
+            let holes = (0..line_ids.len())
+                .map(|i| format!("?{}", i + 2))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "SELECT id, name_snapshot, taxable_amount FROM order_items
+                  WHERE order_id = ?1 AND voided_at IS NULL AND id IN ({holes})"
+            );
+            let mut q = sqlx::query(&sql).bind(order_id);
+            for id in line_ids {
+                q = q.bind(id);
+            }
+            let rows = q.fetch_all(uow.conn()).await?;
+            if rows.len() != line_ids.len() {
+                return Err(AppError::Validation(
+                    "有品項不在這張單上（或已經退掉了），請重新整理".into(),
+                ));
+            }
+
+            let mut due = 0i64;
+            for r in &rows {
+                let id: String = r.get("id");
+                if paid.contains(&id) {
+                    let name: String = r.get("name_snapshot");
+                    return Err(AppError::Conflict(format!("「{name}」已經結過帳了")));
+                }
+                due += r.get::<i64, _>("taxable_amount");
+            }
+            if due <= 0 {
+                return Err(AppError::Validation(
+                    "這幾項的金額是 0，不需要結帳（招待的品項請直接跟著整單結）".into(),
+                ));
+            }
+            Ok(SplitPlan {
+                due,
+                index: done + 1,
+                count: if due == remaining {
+                    Some(done + 1)
+                } else {
+                    None
+                },
+                mode: "by_item",
+                line_ids: line_ids.clone(),
+                is_last: due == remaining,
+            })
+        }
+    }
+}
+
+/// 同一張訂單不能混著兩種分法。
+///
+/// 混了之後「第 2 份」到底是平分的四分之一還是某個金額，沒有人說得準 ——
+/// 而客人正在等著知道自己要付多少。
+async fn ensure_same_split_mode(
+    uow: &mut SqliteUow,
+    order_id: &str,
+    done: i64,
+    want: &str,
+    want_count: Option<i64>,
+) -> AppResult<()> {
+    if done == 0 {
+        return Ok(());
+    }
+    let row = sqlx::query(
+        "SELECT split_mode, split_count FROM bills
+          WHERE order_id = ?1 AND status = 'settled'
+          ORDER BY split_index DESC LIMIT 1",
+    )
+    .bind(order_id)
+    .fetch_optional(uow.conn())
+    .await?;
+    let Some(row) = row else { return Ok(()) };
+    let mode: String = row.get("split_mode");
+    let count: i64 = row.get("split_count");
+    if mode != want {
+        return Err(AppError::Conflict(format!(
+            "這張單已經用「{}」分過帳了，不能中途改成「{}」。",
+            split_mode_label(&mode),
+            split_mode_label(want)
+        )));
+    }
+    if let (Some(want), true) = (want_count, count > 0) {
+        if want != count {
+            return Err(AppError::Conflict(format!(
+                "這張單一開始是分 {count} 份，不能改成 {want} 份。"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn split_mode_label(mode: &str) -> &'static str {
+    match mode {
+        "even" => "平分",
+        "by_item" => "分項",
+        "by_amount" => "指定金額",
+        _ => "整單",
+    }
+}
+
+/// 這張訂單已經收進去多少（所有已結的帳單加總）。
+async fn billed_so_far(uow: &mut SqliteUow, order_id: &str) -> AppResult<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE(SUM(grand_total), 0) FROM bills
+          WHERE order_id = ?1 AND status = 'settled'",
+    )
+    .bind(order_id)
+    .fetch_one(uow.conn())
+    .await?)
 }
 
 async fn data_business_date(uow: &mut SqliteUow, order_id: &str) -> AppResult<String> {

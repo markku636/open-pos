@@ -419,3 +419,13 @@ pub async fn close_table(ctx: State<'_, Ctx>, table_id: String) -> AppResult<()>
 pub async fn seed_demo(ctx: State<'_, Ctx>) -> AppResult<services::demo::DemoResult> {
     services::demo::seed_demo(&ctx).await
 }
+
+/// 分帳試算。金額由 Rust 算一次，前端只負責顯示。
+#[tauri::command]
+pub async fn preview_split(
+    ctx: State<'_, Ctx>,
+    order_id: String,
+    split: Option<services::order::SplitReq>,
+) -> AppResult<services::order::SplitPreview> {
+    services::order::preview_split(&ctx, order_id, split).await
+}

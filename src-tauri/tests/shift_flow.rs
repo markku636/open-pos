@@ -108,6 +108,7 @@ impl Env {
                     ref_no: None,
                 }],
                 idem_key: format!("t-{}-{}", o.id, o.rev),
+                split: None,
             },
         )
         .await

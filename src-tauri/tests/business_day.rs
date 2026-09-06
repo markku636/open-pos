@@ -141,6 +141,7 @@ impl<'a> Till<'a> {
                     ref_no: None,
                 }],
                 idem_key: format!("day-{}", self.seq.get()),
+                split: None,
             },
         )
         .await
@@ -170,6 +171,7 @@ impl<'a> Till<'a> {
                     },
                 ],
                 idem_key: format!("day-{}", self.seq.get()),
+                split: None,
             },
         )
         .await
