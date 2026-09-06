@@ -229,6 +229,13 @@ pub fn run() {
             commands::reprint_receipt,
             commands::audit_query,
             commands::insight,
+            #[cfg(feature = "gui")]
+            commands::pick_folder,
+            commands::sales_history,
+            commands::day_report,
+            commands::closed_days,
+            commands::export_day_xlsx,
+            commands::export_sales_xlsx,
             commands::upsert_modifier_group,
             commands::delete_modifier_group,
             commands::upsert_modifier,

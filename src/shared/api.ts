@@ -532,6 +532,8 @@ export interface CashSummary {
   cashSales: number
   paidIn: number
   paidOut: number
+  /** 現金退款。錢是從抽屜拿出去的，所以要扣。 */
+  cashRefunds: number
   expected: number
   counted?: number | null
   /** 正數 = 溢收，負數 = 短少。 */
@@ -543,6 +545,19 @@ export interface VoidTotals {
   voidedAmount: number
 }
 
+/**
+ * 退款統計。
+ *
+ * 不併進 sales 而是獨立一欄：作廢是「這筆生意沒發生」，退款是「發生了、
+ * 然後退回來」。營業額要看得到原來賣了多少，也要看得到退了多少。
+ */
+export interface RefundTotals {
+  count: number
+  amount: number
+  /** 其中用現金退的。關班的應有現金要扣掉它。 */
+  cashAmount: number
+}
+
 export interface ShiftReport {
   shiftNo: string
   businessDate: string
@@ -552,6 +567,7 @@ export interface ShiftReport {
   payments: PaymentTotal[]
   cash: CashSummary
   voids: VoidTotals
+  refunds: RefundTotals
 }
 
 export interface ItemLine {
@@ -567,6 +583,7 @@ export interface DayReport {
   sales: SalesTotals
   payments: PaymentTotal[]
   voids: VoidTotals
+  refunds: RefundTotals
   shifts: Shift[]
   topItems: ItemLine[]
 }
@@ -1002,4 +1019,99 @@ export interface LanStatus {
 
 export const lanApi = {
   status: () => transport.call<LanStatus>('lan_status'),
+}
+
+// ---------------------------------------------------------------- 銷售記錄
+
+export interface SaleLine {
+  name: string
+  variantName: string | null
+  /** 加了什麼選項（半糖、少冰、加珍珠）。 */
+  options: string[]
+  note: string | null
+  qtyMilli: number
+  unitPrice: number
+  amount: number
+  /** 這一行被退掉了。 */
+  voided: boolean
+}
+
+export interface SalePayment {
+  method: string
+  amount: number
+  refunded: number
+}
+
+export interface Sale {
+  billId: string
+  billNo: string
+  orderId: string
+  orderNo: string
+  businessDate: string
+  settledAt: string | null
+  channel: string
+  channelLabel: string
+  tableLabel: string | null
+  guestCount: number
+  status: string
+  splitLabel: string | null
+  subtotal: number
+  discountTotal: number
+  serviceCharge: number
+  grandTotal: number
+  salesAmount: number
+  taxAmount: number
+  refundedTotal: number
+  /** 誰結的帳。 */
+  settledBy: string | null
+  payments: SalePayment[]
+  lines: SaleLine[]
+}
+
+export interface SalesReport {
+  from: string
+  to: string
+  count: number
+  total: number
+  salesAmount: number
+  taxAmount: number
+  refundedTotal: number
+  byMethod: SalePayment[]
+  sales: Sale[]
+  /** 超過上限 —— 畫面要說「還有更多」，不是假裝就這些。 */
+  truncated: boolean
+}
+
+export interface SalesQuery {
+  from?: string | null
+  to?: string | null
+  channel?: string | null
+  refundedOnly?: boolean
+  keyword?: string | null
+}
+
+/**
+ * 選一個資料夾。取消時回 null。
+ *
+ * 用原生對話框而不是叫使用者打字：最常見的錯路徑是「已經拔掉的隨身碟」
+ * 與「打錯一個字的桌面路徑」，而那兩個都是選單能直接消滅的問題。
+ * （`window.prompt` 在 Tauri 的 webview 裡根本不會出現。）
+ */
+export const dialogApi = {
+  pickFolder: () => transport.call<string | null>('pick_folder'),
+}
+
+export const salesApi = {
+  /** 翻帳：日期區間 + 通路 + 單號片段，每一筆帶明細與付款。 */
+  history: (query: SalesQuery) => transport.call<SalesReport>('sales_history', { query }),
+  /** 過去某一天的 Z 報表（日結當下算好的那份快照）。 */
+  dayReport: (businessDate: string) =>
+    transport.call<DayReport>('day_report', { businessDate }),
+  /** 有日結報表的營業日清單（新到舊）。 */
+  closedDays: () => transport.call<string[]>('closed_days'),
+  /** 匯出 Excel。回傳寫出去的檔案路徑。 */
+  exportDayXlsx: (businessDate: string, dir: string) =>
+    transport.call<string>('export_day_xlsx', { businessDate, dir }),
+  exportSalesXlsx: (query: SalesQuery, dir: string) =>
+    transport.call<string>('export_sales_xlsx', { query, dir }),
 }

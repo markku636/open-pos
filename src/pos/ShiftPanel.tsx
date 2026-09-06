@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import AuditPanel from './AuditPanel'
+import DayReportPanel from './DayReportPanel'
 import InsightPanel from './InsightPanel'
 import {
   reportApi,
@@ -83,7 +84,13 @@ export default function ShiftPanel() {
       <div className="flex h-full min-h-0 flex-col">
         <SubTabs view={view} onView={setView} />
         <div className="min-h-0 flex-1">
-          {view === 'audit' ? <AuditPanel /> : <InsightPanel />}
+          {view === 'audit' ? (
+            <AuditPanel />
+          ) : view === 'day' ? (
+            <DayReportPanel />
+          ) : (
+            <InsightPanel />
+          )}
         </div>
       </div>
     )
@@ -344,7 +351,7 @@ export default function ShiftPanel() {
   )
 }
 
-type View = 'shift' | 'insight' | 'audit'
+type View = 'shift' | 'day' | 'insight' | 'audit'
 
 function SubTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
   return (
@@ -352,6 +359,7 @@ function SubTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
       {(
         [
           ['shift', '班別與日結'],
+          ['day', '日報表'],
           ['insight', '營運分析'],
           ['audit', '稽核紀錄'],
         ] as const

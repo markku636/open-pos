@@ -103,6 +103,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # 診斷包要附最近 N 天的 rolling log —— 地端 + 離線 + 非技術使用者，沒有 log 就無法重現任何 bug。
 tracing-appender = "0.2"
+rust_xlsxwriter = { version = "0.92", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # GetDriveType：偵測資料庫是否被放在網路磁碟上。
@@ -121,6 +122,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 # 測試因此是確定性的，也不會在 CI 上互相搶埠。
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1" 
+zip = { version = "7", default-features = false, features = ["deflate"] }
 
 [features]
 default = ["gui", "server"]

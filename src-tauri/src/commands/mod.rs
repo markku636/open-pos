@@ -542,3 +542,72 @@ pub async fn set_item_modifier_groups(
 ) -> AppResult<()> {
     services::menu::set_item_modifier_groups(&ctx, item_id, group_ids).await
 }
+
+// ---------------------------------------------------------------- 銷售記錄與報表
+
+/// 銷售記錄。日期區間 + 通路 + 單號片段，每一筆帶明細與付款。
+#[tauri::command]
+pub async fn sales_history(
+    ctx: State<'_, Ctx>,
+    query: services::sales::SalesQuery,
+) -> AppResult<services::sales::SalesReport> {
+    services::sales::history(&ctx, query).await
+}
+
+/// 過去某一天的 Z 報表（日結當下算好的那一份快照）。
+#[tauri::command]
+pub async fn day_report(
+    ctx: State<'_, Ctx>,
+    business_date: String,
+) -> AppResult<services::shift::DayReport> {
+    services::sales::day_report(&ctx, business_date).await
+}
+
+/// 有日結報表的營業日清單（新到舊）。
+#[tauri::command]
+pub async fn closed_days(ctx: State<'_, Ctx>) -> AppResult<Vec<String>> {
+    services::sales::closed_days(&ctx).await
+}
+
+/// 把某一天的日報表匯出成 Excel。回傳寫出去的檔案路徑。
+#[tauri::command]
+pub async fn export_day_xlsx(
+    ctx: State<'_, Ctx>,
+    business_date: String,
+    dir: String,
+) -> AppResult<String> {
+    let report = services::sales::day_report(&ctx, business_date).await?;
+    let dir = services::sales::ensure_dir(&dir)?;
+    services::xlsx::write_day_report(&report, &dir)
+}
+
+/// 把一段期間的銷售記錄匯出成 Excel（帳單 / 品項明細 / 付款方式三張表）。
+#[tauri::command]
+pub async fn export_sales_xlsx(
+    ctx: State<'_, Ctx>,
+    query: services::sales::SalesQuery,
+    dir: String,
+) -> AppResult<String> {
+    let report = services::sales::history(&ctx, query).await?;
+    let dir = services::sales::ensure_dir(&dir)?;
+    services::xlsx::write_sales(&report, &dir)
+}
+
+/// 選一個資料夾（匯出用）。取消時回 None。
+///
+/// **只存在於 Tauri 這一側。** 讓區網上的裝置能叫主機跳出檔案對話框，
+/// 等於把「在收銀機上開任意路徑」送給店裡的每一個人。
+///
+/// 用原生對話框而不是叫使用者打字：最常見的錯路徑是「已經拔掉的隨身碟」
+/// 與「打錯一個字的桌面路徑」，而那兩個都是選單能直接消滅的問題。
+#[cfg(feature = "gui")]
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle) -> AppResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    // blocking_pick_folder 不能在主執行緒上呼叫，會鎖死事件迴圈。
+    let picked =
+        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+            .await
+            .map_err(|e| crate::error::AppError::Internal(format!("開不了資料夾選單：{e}")))?;
+    Ok(picked.map(|p| p.to_string()))
+}

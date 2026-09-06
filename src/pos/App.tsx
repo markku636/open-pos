@@ -8,6 +8,7 @@ import MenuManager from './MenuManager'
 import OrderScreen, { type Seat } from './OrderScreen'
 import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
+import SalesPanel from './SalesPanel'
 import ShiftPanel from './ShiftPanel'
 import {
   api,
@@ -21,7 +22,7 @@ import {
 } from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'tables' | 'bills' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
+type Tab = 'order' | 'tables' | 'bills' | 'sales' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
@@ -55,9 +56,10 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
-      <header className="flex shrink-0 items-center gap-1 border-b border-slate-800 px-4 py-2">
-        <img src="/app-icon.png" alt="" className="mr-2 h-5 w-5 rounded" draggable={false} />
-        <span className="mr-4 font-semibold">{APP_NAME}</span>
+      <header className="flex shrink-0 flex-wrap items-center gap-1 border-b border-slate-800 px-4 py-2">
+        {/* 招牌就該看得見。收銀機整天開著，這是店員唯一會一直看到的品牌。 */}
+        <img src="/app-icon.png" alt="" className="mr-2 h-9 w-9 rounded-lg" draggable={false} />
+        <span className="mr-4 text-lg font-semibold tracking-tight">{APP_NAME}</span>
         <TabButton active={tab === 'order'} onClick={() => setTab('order')}>
           點餐
           {seat && <span className="ml-1.5 text-emerald-300">{seat.table.code}</span>}
@@ -67,6 +69,9 @@ export default function App() {
         </TabButton>
         <TabButton active={tab === 'bills'} onClick={() => setTab('bills')}>
           帳單退款
+        </TabButton>
+        <TabButton active={tab === 'sales'} onClick={() => setTab('sales')}>
+          銷售記錄
         </TabButton>
         <TabButton active={tab === 'menu'} onClick={() => setTab('menu')}>
           商品維護
@@ -117,6 +122,7 @@ export default function App() {
           />
         )}
         {tab === 'bills' && <BillsPanel />}
+        {tab === 'sales' && <SalesPanel />}
         {tab === 'menu' && <MenuManager />}
         {tab === 'printer' && <PrinterSettings />}
         {tab === 'shift' && <ShiftPanel />}
