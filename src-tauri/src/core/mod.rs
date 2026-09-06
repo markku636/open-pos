@@ -7,8 +7,10 @@ pub mod business_date;
 pub mod clock;
 pub mod ids;
 pub mod money;
+pub mod pricing;
 
 pub use business_date::BusinessDate;
 pub use clock::Stamp;
 pub use ids::Id;
 pub use money::{Micros, Money, RoundingPolicy};
+pub use pricing::{compute, PricingInput, PricingOutput};
