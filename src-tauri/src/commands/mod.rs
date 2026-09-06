@@ -72,3 +72,59 @@ pub async fn upsert_variant(
 pub async fn delete_variant(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
     services::menu::delete_variant(&ctx, id).await
 }
+
+// ---------------------------------------------------------------- 點餐與結帳
+
+#[tauri::command]
+pub async fn open_order(
+    ctx: State<'_, Ctx>,
+    req: services::order::OpenOrderReq,
+) -> AppResult<services::order::OrderView> {
+    services::order::open_order(&ctx, req).await
+}
+
+#[tauri::command]
+pub async fn add_lines(
+    ctx: State<'_, Ctx>,
+    req: services::order::AddLinesReq,
+) -> AppResult<services::order::OrderView> {
+    services::order::add_lines(&ctx, req).await
+}
+
+#[tauri::command]
+pub async fn void_line(
+    ctx: State<'_, Ctx>,
+    order_id: String,
+    expected_rev: i64,
+    line_id: String,
+    reason_id: Option<String>,
+) -> AppResult<services::order::OrderView> {
+    services::order::void_line(&ctx, order_id, expected_rev, line_id, reason_id).await
+}
+
+#[tauri::command]
+pub async fn settle(
+    ctx: State<'_, Ctx>,
+    req: services::order::SettleReq,
+) -> AppResult<services::order::SettleResult> {
+    services::order::settle(&ctx, req).await
+}
+
+#[tauri::command]
+pub async fn get_order(ctx: State<'_, Ctx>, id: String) -> AppResult<services::order::OrderView> {
+    services::order::get_order(&ctx, &id).await
+}
+
+#[tauri::command]
+pub async fn list_open_orders(ctx: State<'_, Ctx>) -> AppResult<Vec<services::order::OrderView>> {
+    services::order::list_open_orders(&ctx).await
+}
+
+/// 付款方式清單。結帳畫面要用它排按鈕，而不是把方式寫死在前端 ——
+/// 店家停用「悠遊卡」之後，按鈕就該跟著消失。
+#[tauri::command]
+pub async fn payment_methods(
+    ctx: State<'_, Ctx>,
+) -> AppResult<Vec<services::app::PaymentMethodView>> {
+    services::app::payment_methods(&ctx).await
+}

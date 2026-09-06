@@ -118,3 +118,40 @@ fn last_backup_age_hours(ctx: &Ctx) -> Option<f64> {
         .and_then(|t| t.elapsed().ok())
         .map(|d| d.as_secs_f64() / 3600.0)
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentMethodView {
+    pub code: String,
+    pub name: String,
+    pub kind: String,
+    pub allows_change: bool,
+    pub opens_drawer: bool,
+}
+
+/// 啟用中的付款方式。
+///
+/// 結帳畫面用它排按鈕，而不是把「現金 / 信用卡 / LINE Pay」寫死在前端：
+/// 店家停用某一種之後，按鈕要跟著消失，否則收銀員按下去才發現不能用。
+pub async fn payment_methods(ctx: &Ctx) -> AppResult<Vec<PaymentMethodView>> {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT code, name, kind, allows_change, opens_drawer
+           FROM payment_methods
+          WHERE deleted_at IS NULL AND is_active = 1
+          ORDER BY sort_order, code",
+    )
+    .fetch_all(ctx.db.reader())
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| PaymentMethodView {
+            code: r.get("code"),
+            name: r.get("name"),
+            kind: r.get("kind"),
+            allows_change: r.get::<i64, _>("allows_change") == 1,
+            opens_drawer: r.get::<i64, _>("opens_drawer") == 1,
+        })
+        .collect())
+}

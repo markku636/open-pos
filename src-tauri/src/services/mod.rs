@@ -11,5 +11,7 @@
 pub mod app;
 pub mod audit;
 pub mod menu;
+pub mod order;
 pub mod rbac;
 pub mod seed;
+pub mod sequence;

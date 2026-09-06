@@ -182,6 +182,13 @@ pub fn run() {
             commands::delete_item,
             commands::upsert_variant,
             commands::delete_variant,
+            commands::open_order,
+            commands::add_lines,
+            commands::void_line,
+            commands::settle,
+            commands::get_order,
+            commands::list_open_orders,
+            commands::payment_methods,
         ])
         .setup(|app| {
             use tauri::Manager;
