@@ -14,5 +14,14 @@ export const REPO = 'markku636/open-pos'
 /** 作者部落格。 */
 export const BLOG_URL = 'https://blog.markkulab.net/'
 
+/**
+ * 部落格上的工具介紹頁（免費工具那一欄）。
+ *
+ * 「有新版，點擊前往下載」導到這裡而不是 GitHub Release：
+ * 那一頁有安裝說明、硬體需求與截圖，而 GitHub 的 Release 頁對一位
+ * 開早餐店的老闆只是一串看不懂的檔名。下載連結本來就掛在那一頁上。
+ */
+export const TOOL_PAGE_URL = 'https://blog.markkulab.net/tools/open-pos'
+
 /** 一句話介紹。「關於」對話框與 README 第一行講的是同一件事。 */
 export const TAGLINE = '地端優先的開源餐飲 POS：點餐、結帳、出單、日結'

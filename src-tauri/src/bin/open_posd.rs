@@ -26,6 +26,13 @@ struct Args {
     /// 靜態頁面目錄（KDS 與掃碼點餐）。預設找執行檔旁邊的 dist/。
     #[arg(long)]
     ui_dir: Option<PathBuf>,
+
+    /// 沒有商品時建一份示範菜單。
+    ///
+    /// 給貢獻者與想先看看長什麼樣子的店家用。冪等 —— 已經有商品就整個跳過，
+    /// 所以不小心對正式資料下這個旗標也不會弄髒任何東西。
+    #[arg(long)]
+    demo: bool,
 }
 
 /// 找 dist/：先看執行檔旁邊（正式安裝的樣子），再往上找 repo 根（開發時的樣子）。
@@ -73,6 +80,18 @@ async fn main() {
 
     println!("open-posd {} 已啟動", open_pos::VERSION);
     println!("資料目錄：{}", rt.ctx.layout.root.display());
+
+    if args.demo {
+        match open_pos::services::demo::seed_demo_menu(&rt.ctx).await {
+            Ok(true) => {
+                let (cats, items) = open_pos::services::demo::demo_menu_size();
+                println!("已建立示範菜單（{cats} 個分類、{items} 個品項）");
+            }
+            Ok(false) => println!("已經有商品，示範菜單略過"),
+            // 種示範資料失敗不該擋住開店 —— 它是方便，不是必要條件。
+            Err(e) => eprintln!("示範菜單建不起來（不影響營業）：{e}"),
+        }
+    }
 
     let ui_dir = args.ui_dir.or_else(default_ui_dir);
     let lan = match open_pos::lan::spawn(rt.ctx.clone(), args.port, ui_dir) {

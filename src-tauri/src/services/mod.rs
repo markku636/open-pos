@@ -10,6 +10,7 @@
 
 pub mod app;
 pub mod audit;
+pub mod demo;
 pub mod menu;
 pub mod order;
 pub mod rbac;

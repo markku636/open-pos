@@ -36,9 +36,7 @@ export default function App() {
         <TabButton active={tab === 'status'} onClick={() => setTab('status')}>
           系統狀態
         </TabButton>
-        <span className="ml-auto mr-2 text-xs text-slate-600">
-          出單機在 M5、班別日結在 M6
-        </span>
+        <span className="ml-auto" />
         <button
           className="rounded px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200"
           onClick={() => setAbout(true)}
@@ -119,6 +117,21 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
           />
           {info && <Row label="資料目錄" value={info.dataDir} />}
         </dl>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          目前進度
+        </h2>
+        {/*
+          把路線圖放在這裡而不是頂欄：頂欄是收銀員整天盯著的地方，
+          任何不影響「現在這一單」的字都是雜訊。想知道進度的人會自己來看這頁。
+        */}
+        <ul className="space-y-1 text-sm text-slate-400">
+          <li>● 點餐、結帳、商品維護：可以用了</li>
+          <li>○ 出單機（ESC/POS）：開發中</li>
+          <li>○ 班別交接與日結、備份還原：規劃中</li>
+        </ul>
       </section>
 
       {health && (

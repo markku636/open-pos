@@ -123,17 +123,19 @@ export default function OrderScreen() {
               {tree ? '這一類還沒有商品 —— 請先到「商品維護」建立菜單' : '載入中…'}
             </p>
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
               {items.map((it) => (
                 <button
                   key={it.id}
-                  // 最小 88px：收銀員是站著用食指戳，手上可能還拿著東西。
-                  className="flex min-h-[88px] flex-col justify-between rounded bg-slate-900 p-3 text-left transition hover:bg-slate-800 disabled:opacity-40"
+                  // 最小 104px：收銀員是站著用食指戳，手上可能還拿著東西。
+                  // 尺寸往大的方向錯比往小的方向錯好 —— 按錯品項的代價是
+                  // 一份做錯的餐，而畫面上多留一點白沒有任何代價。
+                  className="flex min-h-[104px] flex-col justify-between rounded bg-slate-900 p-4 text-left transition hover:bg-slate-800 disabled:opacity-40"
                   disabled={busy || !!it.soldOutUntil}
                   onClick={() => void addItem(it)}
                 >
-                  <span className="text-sm leading-snug">{it.name}</span>
-                  <span className="mt-2 text-lg font-semibold text-sky-300">
+                  <span className="text-base leading-snug">{it.name}</span>
+                  <span className="mt-2 text-xl font-semibold text-sky-300">
                     {formatMoney(it.basePrice)}
                   </span>
                   {it.soldOutUntil && (

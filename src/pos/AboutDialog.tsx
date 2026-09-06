@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { api, transport, type AppInfo } from '@/shared/api'
-import { APP_NAME, BLOG_URL, REPO, TAGLINE } from '@/shared/brand'
+import { APP_NAME, REPO, TAGLINE, TOOL_PAGE_URL } from '@/shared/brand'
 import {
   autoCheckEnabled,
   checkForUpdate,
@@ -76,7 +76,7 @@ export default function AboutDialog({
 
   const links = [
     { icon: IconExternal, label: 'GitHub 專案', url: `https://github.com/${REPO}` },
-    { icon: IconBook, label: '作者部落格', url: BLOG_URL },
+    { icon: IconBook, label: '工具介紹頁', url: TOOL_PAGE_URL },
     { icon: IconBug, label: '回報問題', url: `https://github.com/${REPO}/issues/new` },
   ]
 
@@ -127,7 +127,9 @@ export default function AboutDialog({
             {check.phase === 'update' && (
               <button
                 type="button"
-                onClick={() => openUrl(check.info.url)}
+                // 導到部落格的工具頁，不是 GitHub Release ——
+                // 那一頁有安裝說明與硬體需求，Release 頁對店家只是一串檔名。
+                onClick={() => openUrl(TOOL_PAGE_URL)}
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-400 hover:underline"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden />
