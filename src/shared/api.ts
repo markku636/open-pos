@@ -593,3 +593,48 @@ export const discountApi = {
       req: { orderId, expectedRev, reasonId, note },
     }),
 }
+
+// ---------------------------------------------------------------- 廚房顯示
+
+export interface KdsLine {
+  id: string
+  name: string
+  variantName?: string | null
+  options: string[]
+  note?: string | null
+  qtyMilli: number
+  /** pending / fired / cooking / ready */
+  status: string
+  stationId?: string | null
+  stationName?: string | null
+}
+
+export interface KdsTicket {
+  orderId: string
+  orderNo: string
+  channelLabel: string
+  tableLabel?: string | null
+  /** 這張單開了多久。廚房看的是「等最久的那一張」而不是時間點。 */
+  waitingSeconds: number
+  placedAt: string
+  lines: KdsLine[]
+}
+
+export interface KdsBoard {
+  generatedAt: string
+  tickets: KdsTicket[]
+}
+
+/**
+ * 廚房顯示。
+ *
+ * 讀取走 SSE（見 src/kds/useBoard.ts），寫入走一般的 POST ——
+ * KDS 需要的雙向只有「這一項做好了」，為它扛一整套 WebSocket 的狀態機
+ * 並不划算，而樂觀更新與錯誤處理都是熟悉的請求／回應模型。
+ */
+export const kdsApi = {
+  board: () => transport.call<KdsBoard>('kds_board'),
+  /** 只能往前推：pending → cooking → ready → served。 */
+  advance: (lineId: string, to: 'cooking' | 'ready' | 'served') =>
+    transport.call<KdsBoard>('kds_advance', { lineId, to }),
+}

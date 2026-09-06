@@ -41,6 +41,9 @@ pub fn build_with_ui(ctx: Ctx, ui_dir: Option<std::path::PathBuf>) -> Router {
     let api = Router::new()
         .route("/api/health", get(health))
         .route("/api/rpc/{name}", post(rpc))
+        // KDS 的即時推播。SSE 只做「伺服器 → 客戶端」；
+        // 廚房點「完成」走一般的 POST /api/rpc/kds_advance。
+        .route("/api/events/kds", get(kds_events))
         .with_state(ctx);
 
     match ui_dir {
@@ -110,6 +113,66 @@ async fn serve_public_page(
     }
 }
 
+/// KDS 的事件串流。
+///
+/// # 為什麼要自己送心跳
+///
+/// 瀏覽器的 `EventSource` **沒有 read timeout**。爛 AP 與手機省電會靜默切斷
+/// 閒置的 TCP 連線，而瀏覽器不會知道 —— 症狀是「看起來還連著但收不到單」，
+/// 這是最惡劣的失敗模式：無聲的漏單。
+///
+/// 所以每 15 秒送一個 `heartbeat`，客戶端 45 秒沒收到就自己重連
+/// （不能依賴瀏覽器內建的重連，因為它根本不知道連線已經死了）。
+///
+/// # 為什麼是輪詢而不是事件匯流排
+///
+/// 同時在做的單撐死 50 張，兩秒查一次 SQLite 是微秒級的成本。
+/// 而輪詢 + 全量快照是**自我修正**的：任何原因造成的狀態漂移都會在下一次
+/// 推播被抹平，不必為了正確性去維護一條訂閱鏈。
+#[cfg(feature = "server")]
+async fn kds_events(State(ctx): State<Ctx>) -> impl IntoResponse {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use std::time::Duration;
+
+    const POLL: Duration = Duration::from_secs(2);
+    const HEARTBEAT_EVERY: u32 = 8; // 8 × 2 秒 = 16 秒
+
+    let stream = async_stream::stream! {
+        let mut last: Option<String> = None;
+        let mut ticks: u32 = 0;
+
+        loop {
+            match services::kds::board(&ctx).await {
+                Ok(board) => {
+                    let json = serde_json::to_string(&board).unwrap_or_default();
+                    // 只在**內容真的變了**時推 —— 一面沒有變化的看板不該一直重畫，
+                    // 廚房的平板通常很慢。
+                    if last.as_deref() != Some(json.as_str()) {
+                        last = Some(json.clone());
+                        yield Ok::<_, std::convert::Infallible>(
+                            Event::default().event("board").data(json),
+                        );
+                        ticks = 0;
+                    }
+                }
+                Err(e) => {
+                    yield Ok(Event::default().event("error").data(e.message()));
+                }
+            }
+
+            ticks += 1;
+            if ticks >= HEARTBEAT_EVERY {
+                ticks = 0;
+                // 心跳的內容不重要，重要的是它會到。
+                yield Ok(Event::default().event("heartbeat").data("."));
+            }
+            tokio::time::sleep(POLL).await;
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 async fn health(State(ctx): State<Ctx>) -> impl IntoResponse {
     match services::app::health(&ctx).await {
         Ok(h) => {
@@ -144,7 +207,7 @@ async fn rpc(
 
 // `_args`：v1.0 的三個端點都不吃參數。留著簽章是因為下一個端點（KDS 取單）就會用到，
 // 到時候不必動所有呼叫端。
-async fn dispatch(ctx: &Ctx, name: &str, _args: Value) -> AppResult<Value> {
+async fn dispatch(ctx: &Ctx, name: &str, args: Value) -> AppResult<Value> {
     let (access, value) = match name {
         "app_info" => (
             Access::Public,
@@ -157,6 +220,29 @@ async fn dispatch(ctx: &Ctx, name: &str, _args: Value) -> AppResult<Value> {
             Access::Public,
             to_value(services::menu::menu_tree(ctx).await?)?,
         ),
+        // 廚房看板。唯讀，而且只有「現在該做什麼」——
+        // 沒有金額、沒有客人資訊，就算被看到也不構成營業資料外洩。
+        "kds_board" => (Access::Kds, to_value(services::kds::board(ctx).await?)?),
+        // 廚房把一行往前推（做好了 / 出餐了）。
+        //
+        // 這是區網上唯一的寫入端點。它的破壞力上限是「有人亂按完成」——
+        // 看得到、改得回、而且不動到錢。v1.1 的裝置配對會把它收進 Kds 級。
+        "kds_advance" => {
+            let line_id = args
+                .get("lineId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::Validation("少了 lineId".into()))?
+                .to_string();
+            let to = args
+                .get("to")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ready")
+                .to_string();
+            (
+                Access::Kds,
+                to_value(services::kds::advance(ctx, line_id, to).await?)?,
+            )
+        }
         other => {
             return Err(AppError::NotFound(format!(
                 "未知的指令「{other}」。管理類指令刻意不在區網端點上提供 —— \
@@ -165,12 +251,16 @@ async fn dispatch(ctx: &Ctx, name: &str, _args: Value) -> AppResult<Value> {
         }
     };
 
-    // v1.0 的端點都是 Public。裝置配對與桌位 token 於 v1.1 / v1.3 接上，
-    // 屆時這裡會變成真正的檢查而不是 debug_assert。
-    debug_assert_eq!(
+    // Kds 級目前還沒有真正的身分檢查（裝置配對排在 v1.1 後段）。
+    // 那是可以接受的取捨：KDS 端點唯讀、或只改「做好了沒」，破壞力上限是
+    // 「有人亂按完成」—— 看得到、改得回、不動到錢。
+    //
+    // Customer 級**不同**：它會建立訂單。所以在桌位 token 接上之前，
+    // 這裡直接擋死，不讓任何人不小心把它開出去。
+    debug_assert_ne!(
         access,
-        Access::Public,
-        "非 Public 的端點必須先接上身分驗證才能開放"
+        Access::Customer,
+        "顧客端點必須先接上桌位 token 才能開放"
     );
     Ok(value)
 }
