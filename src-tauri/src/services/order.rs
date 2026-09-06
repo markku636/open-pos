@@ -332,9 +332,10 @@ pub async fn add_lines(ctx: &Ctx, req: AddLinesReq) -> AppResult<OrderView> {
     ensure_rev(&head, req.expected_rev)?;
 
     let mut line_no = next_line_no(&mut uow, &req.order_id).await?;
+    let mut added: std::collections::HashSet<String> = Default::default();
     for l in &req.lines {
         let resolved = resolve_line(&mut uow, l).await?;
-        insert_line(&mut uow, &req.order_id, line_no, l, &resolved, &now).await?;
+        added.insert(insert_line(&mut uow, &req.order_id, line_no, l, &resolved, &now).await?);
         line_no += 1;
     }
 
@@ -360,12 +361,16 @@ pub async fn add_lines(ctx: &Ctx, req: AddLinesReq) -> AppResult<OrderView> {
     .await?;
 
     // 廚房單進 outbox。交易內不碰印表機 —— 一個卡住的 TCP 連線會讓全店寫入排隊。
-    let reason = if head.status == "draft" {
-        TicketReason::NewOrder
+    //
+    // ★ 加點單**只印這一次新增的行**。
+    //   把整張單重印一次，廚師會把已經做好的珍珠奶茶再做一杯 ——
+    //   而他不會知道那是重複的，因為單上看起來就是要做兩杯。
+    let (reason, only) = if head.status == "draft" {
+        (TicketReason::NewOrder, None)
     } else {
-        TicketReason::AddItems
+        (TicketReason::AddItems, Some(&added))
     };
-    enqueue_kitchen_ticket(&mut uow, ctx, &store, &req.order_id, reason, &now).await?;
+    enqueue_kitchen_ticket(&mut uow, ctx, &store, &req.order_id, reason, only, &now).await?;
 
     uow.commit().await?;
     get_order(ctx, &req.order_id).await
@@ -435,7 +440,19 @@ pub async fn void_line(
     .await?;
 
     // 退點也要出單 —— 廚房已經在做了，不通知的話那份餐會照樣做出來。
-    enqueue_kitchen_ticket(&mut uow, ctx, &store, &order_id, TicketReason::Void, &now).await?;
+    // 同樣只印被退掉的那一行：一張寫著「取消」又列出整桌菜的單，
+    // 廚師會不知道到底要取消哪一項。
+    let voided: std::collections::HashSet<String> = std::iter::once(line_id.clone()).collect();
+    enqueue_kitchen_ticket(
+        &mut uow,
+        ctx,
+        &store,
+        &order_id,
+        TicketReason::Void,
+        Some(&voided),
+        &now,
+    )
+    .await?;
 
     uow.commit().await?;
     get_order(ctx, &order_id).await
@@ -889,6 +906,9 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
     })
 }
 
+/// 回傳新建立的那一行的 id。
+///
+/// 呼叫端需要它：加點單**只能印這一次新增的行**（見 `enqueue_kitchen_ticket`）。
 async fn insert_line(
     uow: &mut SqliteUow,
     order_id: &str,
@@ -896,7 +916,7 @@ async fn insert_line(
     l: &NewLine,
     r: &ResolvedLine,
     now: &Stamp,
-) -> AppResult<()> {
+) -> AppResult<String> {
     let qty = l.qty_milli.unwrap_or(QTY_SCALE);
     if qty <= 0 {
         return Err(AppError::Validation("數量必須大於 0".into()));
@@ -949,7 +969,7 @@ async fn insert_line(
         .execute(uow.conn())
         .await?;
     }
-    Ok(())
+    Ok(line_id)
 }
 
 // ---------------------------------------------------------------- 內部：重算
@@ -1215,6 +1235,52 @@ async fn build_ticket_data(
     only_lines: Option<&std::collections::HashSet<String>>,
 ) -> AppResult<TicketData> {
     let v = load_order_view(uow, order_id).await?;
+
+    // ★ 退點單要印的那一行**已經標了作廢**，所以不能只用 `load_order_view`
+    //   （它只回未作廢的行）—— 否則「取消珍珠奶茶」會印出一張空白的單。
+    //   指定了行 id 時直接從 order_items 撈，作廢與否都撈得到。
+    let ticket_lines: Vec<OrderLineView> = match only_lines {
+        None => v.lines.clone(),
+        Some(keep) => {
+            let mut out = Vec::new();
+            for line_id in keep {
+                let Some(it) = sqlx::query(
+                    "SELECT id, line_no, name_snapshot, variant_name_snapshot, note, qty_milli,
+                            unit_price, taxable_amount
+                       FROM order_items WHERE id = ?1 AND order_id = ?2",
+                )
+                .bind(line_id)
+                .bind(order_id)
+                .fetch_optional(uow.conn())
+                .await?
+                else {
+                    continue;
+                };
+                let options: Vec<String> = sqlx::query_scalar(
+                    "SELECT name_snapshot FROM order_item_modifiers
+                      WHERE order_item_id = ?1 ORDER BY id",
+                )
+                .bind(line_id)
+                .fetch_all(uow.conn())
+                .await?;
+                out.push(OrderLineView {
+                    id: it.get("id"),
+                    line_no: it.get("line_no"),
+                    name: it.get("name_snapshot"),
+                    variant_name: it.get("variant_name_snapshot"),
+                    options,
+                    note: it.get("note"),
+                    qty_milli: it.get("qty_milli"),
+                    unit_price: it.get("unit_price"),
+                    amount: it.get("taxable_amount"),
+                });
+            }
+            // 行號排序：廚房單上的順序要跟客人點的順序一樣。
+            out.sort_by_key(|l| l.line_no);
+            out
+        }
+    };
+
     let channel = match v.channel.as_str() {
         "takeout" => Channel::Takeout,
         "delivery" => Channel::Delivery,
@@ -1231,15 +1297,9 @@ async fn build_ticket_data(
         // 資料庫裡一律存 UTC（字典序即時序、換 PG 免轉換），但**印在紙上的
         // 時間是給人看的**：一位台灣店員在晚上九點半拿到一張寫著 13:35 的單，
         // 只會以為系統壞了。時區轉換就發生在這一行、只發生在這一行。
-        printed_at: now
-            .at
-            .with_timezone(&store.day.tz)
-            .format("%Y-%m-%d %H:%M")
-            .to_string(),
-        lines: v
-            .lines
+        printed_at: crate::core::clock::for_humans(now.at, store.day.tz),
+        lines: ticket_lines
             .iter()
-            .filter(|l| only_lines.is_none_or(|keep| keep.contains(&l.id)))
             .map(|l| TicketLine {
                 // 廚房單優先用短名 —— 58mm 一行只放得下約 9 個中文字。
                 name: match &l.variant_name {
@@ -1281,17 +1341,21 @@ async fn enqueue_kitchen_ticket(
     store: &StoreConfig,
     order_id: &str,
     reason: TicketReason,
+    // None = 整張單（新單）。Some = 只印這幾行（加點、退點）。
+    only_lines: Option<&std::collections::HashSet<String>>,
     now: &Stamp,
 ) -> AppResult<()> {
     use std::collections::{BTreeMap, HashSet};
 
     let business_date = data_business_date(uow, order_id).await?;
 
+    // 退點時那一行已經標了 voided_at，所以不能只看未作廢的行 ——
+    // 否則「取消珍珠奶茶」的單上會一個字都沒有。
     let rows = sqlx::query(
         "SELECT oi.id, oi.station_id, ps.name AS station_name
            FROM order_items oi
            LEFT JOIN print_stations ps ON ps.id = oi.station_id AND ps.deleted_at IS NULL
-          WHERE oi.order_id = ?1 AND oi.voided_at IS NULL
+          WHERE oi.order_id = ?1
           ORDER BY oi.line_no",
     )
     .bind(order_id)
@@ -1301,12 +1365,16 @@ async fn enqueue_kitchen_ticket(
     // BTreeMap：輸出順序必須可重現（稽核與快照測試都靠它）。
     let mut groups: BTreeMap<Option<String>, (Option<String>, HashSet<String>)> = BTreeMap::new();
     for r in &rows {
+        let line_id: String = r.get("id");
+        if only_lines.is_some_and(|keep| !keep.contains(&line_id)) {
+            continue;
+        }
         let station_id: Option<String> = r.get("station_id");
         let station_name: Option<String> = r.get("station_name");
         let entry = groups
             .entry(station_id)
             .or_insert((station_name, HashSet::new()));
-        entry.1.insert(r.get::<String, _>("id"));
+        entry.1.insert(line_id);
     }
 
     for (station_id, (station_name, line_ids)) in groups {

@@ -439,6 +439,20 @@ pub async fn delete_station(ctx: &Ctx, id: String) -> AppResult<()> {
 
 // ---------------------------------------------------------------- 探測與測試列印
 
+/// 店家的時區。讀不到就用台北 —— 這個專案的使用者在台灣，
+/// 而「猜錯時區」的代價（單上的時間差 8 小時）遠大於「猜」的代價。
+async fn store_timezone(ctx: &Ctx) -> chrono_tz::Tz {
+    sqlx::query_scalar::<_, String>(
+        "SELECT tz FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1",
+    )
+    .fetch_optional(ctx.db.reader())
+    .await
+    .ok()
+    .flatten()
+    .and_then(|tz| tz.parse().ok())
+    .unwrap_or(chrono_tz::Asia::Taipei)
+}
+
 async fn open_driver(ctx: &Ctx, printer_id: &str) -> AppResult<(String, Active)> {
     let p = list_printers(ctx)
         .await?
@@ -488,12 +502,16 @@ pub async fn test_print(ctx: &Ctx, id: String) -> AppResult<()> {
     let (name, driver) = open_driver(ctx, &id).await?;
     let caps = driver.caps();
     let now = Stamp::now();
+    let tz = store_timezone(ctx).await;
 
     let doc = ReceiptDoc::new(caps.paper)
         .banner("測試列印", true)
         .rule()
         .text(format!("印表機：{name}"))
-        .text(format!("時間：{}", now.iso()[..19].replace('T', " ")))
+        .text(format!(
+            "時間：{}",
+            crate::core::clock::for_humans(now.at, tz)
+        ))
         .text(format!("紙寬：{} 欄", caps.paper.cols()))
         .rule()
         // 這一行是給人看的驗收基準：中文有沒有變成問號、數字欄有沒有對齊。

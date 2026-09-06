@@ -143,8 +143,19 @@ pub fn run() {
 
     let ctx = rt.ctx.clone();
 
+    // ★ 一定要在 Tauri 的 runtime **裡面**呼叫。
+    //
+    // `lan::spawn` 會把 std 的 listener 轉成 tokio 的（需要 reactor），並丟一個
+    // 背景 task。從這裡的同步情境直接呼叫會 panic：
+    // 「there is no reactor running」—— 而且是在啟動的第一秒，畫面還沒出現，
+    // 使用者只會看到程式閃一下就消失。
+    //
+    // `block_on` 只是借用 runtime 的情境；它裡面 spawn 出去的 task 在 block_on
+    // 回來之後仍然繼續在 Tauri 的 runtime 上跑。
     #[cfg(feature = "server")]
-    let lan = match lan::spawn(ctx.clone(), lan::DEFAULT_PORT, default_ui_dir()) {
+    let lan = match tauri::async_runtime::block_on(async {
+        lan::spawn(ctx.clone(), lan::DEFAULT_PORT, default_ui_dir())
+    }) {
         Ok(h) => Some(h),
         Err(e) => {
             // 區網服務起不來**不該讓整台收銀機開不了**。

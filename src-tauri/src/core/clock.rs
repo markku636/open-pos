@@ -48,6 +48,17 @@ impl Stamp {
     }
 }
 
+/// 給人看的時間。
+///
+/// 資料庫一律存 UTC（固定寬度、字典序即時序、換 PG 免轉換），
+/// **只有要印在紙上或顯示在畫面上時才轉成當地時間**，而且只在這一個地方轉。
+///
+/// 為什麼值得一個函式：一位台灣店員在晚上九點半拿到一張寫著 13:35 的單，
+/// 不會想到那是 UTC，只會以為系統壞了。這種 bug 每出現一次就要重新解釋一次。
+pub fn for_humans(at: DateTime<Utc>, tz: chrono_tz::Tz) -> String {
+    at.with_timezone(&tz).format("%Y-%m-%d %H:%M").to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +85,12 @@ mod tests {
         // 同一個 Stamp 產生的文字必須完全一致 —— 這正是它存在的理由。
         assert_eq!(s.iso(), s.iso());
         assert_eq!(s.iso(), to_iso(s.at));
+    }
+
+    #[test]
+    fn human_time_is_local_not_utc() {
+        // 台北是 UTC+8：13:35Z 印在紙上必須是 21:35。
+        let at = Utc.with_ymd_and_hms(2026, 9, 6, 13, 35, 0).unwrap();
+        assert_eq!(for_humans(at, chrono_tz::Asia::Taipei), "2026-09-06 21:35");
     }
 }

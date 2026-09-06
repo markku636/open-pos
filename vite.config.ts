@@ -21,6 +21,9 @@ export default defineConfig({
 
   server: {
     port: 1420,
+    // strictPort：撞埠就直接失敗，不要偷偷換一個。
+    // tauri.conf.json 的 devUrl 是寫死的 127.0.0.1:1420，
+    // 偷換埠只會讓 App 開出一個空白視窗，而那很難查。
     strictPort: true,
     // 讓區網的平板 / 手機能連上 dev server 測 kds.html 與 order.html。
     host: true,

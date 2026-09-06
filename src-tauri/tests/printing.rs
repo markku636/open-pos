@@ -521,3 +521,182 @@ async fn bytes_really_travel_over_tcp_to_a_printer() {
 
     e.ctx.db.close().await;
 }
+
+/// ★ 加點單只能印**這一次新增的**那幾行。
+///
+/// 把整張單重印一次，廚師會把已經做好的珍珠奶茶再做一杯 —— 而他不會知道
+/// 那是重複的，因為單上看起來就是要做兩杯。這是餐飲 POS 最貴的一種 bug：
+/// 錯的是一份餐、一次客訴，而且系統完全不會報錯。
+#[tokio::test]
+async fn an_add_items_ticket_only_lists_the_new_lines() {
+    let e = env("additems").await;
+    demo::seed_demo_menu(&e.ctx).await.unwrap();
+    e.file_printer("櫃檯").await;
+
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    let find = |name: &str| {
+        tree.categories
+            .iter()
+            .flat_map(|c| c.items.iter())
+            .find(|i| i.name == name)
+            .unwrap()
+            .id
+            .clone()
+    };
+    let line = |item_id: String| order::NewLine {
+        item_id,
+        variant_id: None,
+        modifier_ids: vec![],
+        qty_milli: None,
+        note: None,
+    };
+
+    let o = order::open_order(
+        &e.ctx,
+        order::OpenOrderReq {
+            channel: Channel::Takeout,
+            table_id: None,
+            guest_count: None,
+            client_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    let o = order::add_lines(
+        &e.ctx,
+        order::AddLinesReq {
+            order_id: o.id.clone(),
+            expected_rev: o.rev,
+            lines: vec![line(find("珍珠奶茶"))],
+        },
+    )
+    .await
+    .unwrap();
+    // 第二次 = 加點。
+    order::add_lines(
+        &e.ctx,
+        order::AddLinesReq {
+            order_id: o.id.clone(),
+            expected_rev: o.rev,
+            lines: vec![line(find("紅茶拿鐵"))],
+        },
+    )
+    .await
+    .unwrap();
+
+    print_worker::tick(&e.ctx).await.unwrap();
+    let out = e.printed("櫃檯");
+    assert_eq!(out.len(), 2, "應該兩張單（新單一張、加點一張）");
+
+    assert!(
+        out[0].contains("珍珠奶茶"),
+        "新單：
+{}",
+        out[0]
+    );
+    assert!(
+        !out[0].contains("紅茶拿鐵"),
+        "新單不該有還沒點的品項：
+{}",
+        out[0]
+    );
+
+    let add = &out[1];
+    assert!(
+        add.contains("加點"),
+        "加點單要標明原因：
+{add}"
+    );
+    assert!(
+        add.contains("紅茶拿鐵"),
+        "加點單少了新品項：
+{add}"
+    );
+    assert!(
+        !add.contains("珍珠奶茶"),
+        "★ 加點單重印了已經做過的品項 —— 廚師會再做一杯：
+{add}"
+    );
+
+    e.ctx.db.close().await;
+}
+
+/// 退點單要說出取消的是**哪一項**。
+#[tokio::test]
+async fn a_void_ticket_names_the_cancelled_item() {
+    let e = env("void").await;
+    demo::seed_demo_menu(&e.ctx).await.unwrap();
+    e.file_printer("櫃檯").await;
+
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    let find = |name: &str| {
+        tree.categories
+            .iter()
+            .flat_map(|c| c.items.iter())
+            .find(|i| i.name == name)
+            .unwrap()
+            .id
+            .clone()
+    };
+    let line = |item_id: String| order::NewLine {
+        item_id,
+        variant_id: None,
+        modifier_ids: vec![],
+        qty_milli: None,
+        note: None,
+    };
+
+    let o = order::open_order(
+        &e.ctx,
+        order::OpenOrderReq {
+            channel: Channel::Takeout,
+            table_id: None,
+            guest_count: None,
+            client_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    let o = order::add_lines(
+        &e.ctx,
+        order::AddLinesReq {
+            order_id: o.id.clone(),
+            expected_rev: o.rev,
+            lines: vec![line(find("珍珠奶茶")), line(find("滷肉飯"))],
+        },
+    )
+    .await
+    .unwrap();
+
+    let target = o
+        .lines
+        .iter()
+        .find(|l| l.name == "珍珠奶茶")
+        .unwrap()
+        .id
+        .clone();
+    order::void_line(&e.ctx, o.id.clone(), o.rev, target, None)
+        .await
+        .unwrap();
+
+    print_worker::tick(&e.ctx).await.unwrap();
+    let out = e.printed("櫃檯");
+    let void_ticket = out.last().unwrap();
+    assert!(
+        void_ticket.contains("取消"),
+        "
+{void_ticket}"
+    );
+    assert!(
+        void_ticket.contains("珍珠奶茶"),
+        "
+{void_ticket}"
+    );
+    assert!(
+        !void_ticket.contains("滷肉飯"),
+        "退點單不該列出沒有被取消的品項 —— 廚師會不知道要取消哪一項：
+{void_ticket}"
+    );
+
+    e.ctx.db.close().await;
+}
