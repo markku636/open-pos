@@ -1,19 +1,32 @@
 import { useEffect, useState } from 'react'
 
+import AboutDialog from './AboutDialog'
 import MenuManager from './MenuManager'
 import OrderScreen from './OrderScreen'
 import { api, transport, type AppError, type AppInfo, type Health } from '@/shared/api'
+import { APP_NAME } from '@/shared/brand'
 
 type Tab = 'order' | 'menu' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
   const [tab, setTab] = useState<Tab>('order')
+  const [about, setAbout] = useState(false)
+  // 版本資訊在「系統狀態」與「關於」兩處都要用，所以在最上層抓一次。
+  // 兩邊各抓一次不只是浪費，還會出現「兩個畫面顯示不同版本」這種
+  // 讓人完全無法診斷的狀況。
+  const [info, setInfo] = useState<AppInfo | null>(null)
+  const [infoError, setInfoError] = useState<AppError | null>(null)
+
+  useEffect(() => {
+    api.appInfo().then(setInfo).catch(setInfoError)
+  }, [])
 
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
       <header className="flex shrink-0 items-center gap-1 border-b border-slate-800 px-4 py-2">
-        <span className="mr-4 font-semibold">open-pos</span>
+        <img src="/app-icon.png" alt="" className="mr-2 h-5 w-5 rounded" draggable={false} />
+        <span className="mr-4 font-semibold">{APP_NAME}</span>
         <TabButton active={tab === 'order'} onClick={() => setTab('order')}>
           點餐
         </TabButton>
@@ -23,16 +36,24 @@ export default function App() {
         <TabButton active={tab === 'status'} onClick={() => setTab('status')}>
           系統狀態
         </TabButton>
-        <span className="ml-auto text-xs text-slate-600">
+        <span className="ml-auto mr-2 text-xs text-slate-600">
           出單機在 M5、班別日結在 M6
         </span>
+        <button
+          className="rounded px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200"
+          onClick={() => setAbout(true)}
+        >
+          關於
+        </button>
       </header>
 
       <main className="min-h-0 flex-1 overflow-hidden p-4">
         {tab === 'order' && <OrderScreen />}
         {tab === 'menu' && <MenuManager />}
-        {tab === 'status' && <StatusPanel />}
+        {tab === 'status' && <StatusPanel info={info} error={infoError} />}
       </main>
+
+      {about && <AboutDialog info={info} onClose={() => setAbout(false)} />}
     </div>
   )
 }
@@ -65,13 +86,10 @@ function TabButton({
  * 無法重現「今天中午印不出來、現在又好了」這種回報。所以要讓店家在打電話之前
  * 就能自己看出是哪一段斷了。
  */
-function StatusPanel() {
-  const [info, setInfo] = useState<AppInfo | null>(null)
+function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | null }) {
   const [health, setHealth] = useState<Health | null>(null)
-  const [error, setError] = useState<AppError | null>(null)
 
   useEffect(() => {
-    api.appInfo().then(setInfo).catch(setError)
     // 不健康時後端回 503，transport 會丟出 AppError —— 但那是
     // 「檢查結果是壞的」而不是「檢查失敗了」，所以不併進 error 顯示。
     api

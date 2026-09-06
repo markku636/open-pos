@@ -27,6 +27,43 @@ pub fn lan_info(port: u16) -> Option<String> {
     crate::lan::lan_base_url(port)
 }
 
+/// 用系統預設瀏覽器開啟外部連結。
+///
+/// **刻意只存在於 Tauri 這一側，不掛進 `lan::router`。**
+/// 區網那邊的呼叫者是顧客的手機與廚房平板；讓他們能叫主機開瀏覽器，
+/// 等於把「打開任意網址」這個能力送給店裡的每一個人。
+///
+/// 只放行 http / https：`file://` 會變成任意檔案讀取，
+/// 而 Windows 上某些 scheme 可以直接帶起執行檔。
+#[tauri::command]
+pub async fn open_external(url: String) -> AppResult<()> {
+    let u = url.trim();
+    if !(u.starts_with("http://") || u.starts_with("https://")) {
+        return Err(crate::error::AppError::Validation(
+            "只能開啟 http / https 連結".into(),
+        ));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW：不然每點一次連結就閃一個黑色主控台視窗。
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", u]);
+        c.creation_flags(CREATE_NO_WINDOW);
+        let _ = c.spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(u).spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(u).spawn();
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- 商品維護
 
 #[tauri::command]

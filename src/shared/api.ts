@@ -32,6 +32,17 @@ export const api = {
   appInfo: () => transport.call<AppInfo>('app_info'),
   /** 健康檢查。不健康時後端回 503，transport 會丟出 AppError。 */
   health: () => transport.call<Health>('health'),
+  /**
+   * 用系統預設瀏覽器開啟外部連結。
+   *
+   * 只有 Tauri 這一側有這個 command —— 區網那邊的呼叫者是顧客手機與廚房平板，
+   * 讓他們叫「主機」開瀏覽器是一個真的安全漏洞。所以瀏覽器模式改用 window.open，
+   * 開的是「使用者自己那台裝置」的瀏覽器。
+   */
+  openExternal: (url: string) =>
+    transport.kind === 'tauri'
+      ? transport.call<void>('open_external', { url })
+      : Promise.resolve(void window.open(url, '_blank', 'noopener,noreferrer')),
 }
 
 export { transport }

@@ -75,6 +75,9 @@ fn is_public_path(path: &str) -> bool {
     let p = path.trim_start_matches('/');
     match p {
         "kds.html" | "order.html" => true,
+        // 品牌圖示。三個 entry 的 <head> 都指到它們，擋掉只會換來一堆 404，
+        // 而它們裡面沒有任何一個位元組是機密。
+        "favicon.ico" | "app-icon.png" => true,
         _ if p.starts_with("assets/") => {
             // Vite 的 chunk 檔名是 `<entry>-<hash>.js`，收銀機那一支叫 index-*。
             let file = p.trim_start_matches("assets/");

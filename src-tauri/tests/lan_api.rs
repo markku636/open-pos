@@ -199,11 +199,16 @@ async fn the_cashier_page_is_not_reachable_from_the_lan() {
     }
     std::fs::write(dist.join("assets/index-abc.js"), "cashier bundle").unwrap();
     std::fs::write(dist.join("assets/kds-abc.js"), "kds bundle").unwrap();
+    std::fs::write(dist.join("favicon.ico"), "icon").unwrap();
+    std::fs::write(dist.join("app-icon.png"), "icon").unwrap();
 
     let cases = [
         ("/kds.html", StatusCode::OK),
         ("/order.html", StatusCode::OK),
         ("/assets/kds-abc.js", StatusCode::OK),
+        // 品牌圖示放行：擋掉只會換來一堆 404，而它們不含任何機密。
+        ("/favicon.ico", StatusCode::OK),
+        ("/app-icon.png", StatusCode::OK),
         ("/index.html", StatusCode::NOT_FOUND),
         // 連 chunk 也要擋，否則猜檔名還是拿得到收銀機的程式碼。
         ("/assets/index-abc.js", StatusCode::NOT_FOUND),

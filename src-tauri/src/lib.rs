@@ -175,6 +175,7 @@ pub fn run() {
             commands::app_info,
             commands::health,
             commands::lan_info,
+            commands::open_external,
             commands::menu_tree,
             commands::upsert_category,
             commands::delete_category,
