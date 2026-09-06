@@ -160,10 +160,12 @@ pub fn compute(input: &PricingInput) -> AppResult<PricingOutput> {
                 .iter()
                 .map(|(price, qty)| price.0 * qty)
                 .sum::<i64>();
-        // 數量是千分之一刻度，乘完要捨回整數元。中間值走 i128 防溢位。
-        let gross = div_round_half_up(
-            ((unit_with_mods as i128 * l.qty_milli as i128) / 1) as i64,
-            QTY_SCALE,
+        // 數量是千分之一刻度，乘完要捨回整數元。
+        // 全程走 i128：先轉 i64 再除會在極端輸入下溢位，而那是靜默的錯誤 ——
+        // 金額突然變成負數，而且只在某一筆離譜的資料上發生。
+        let gross = round_div_i128(
+            unit_with_mods as i128 * l.qty_milli as i128,
+            QTY_SCALE as i128,
         );
 
         let mut discount = 0i64;
@@ -272,6 +274,20 @@ pub fn compute(input: &PricingInput) -> AppResult<PricingOutput> {
 
     debug_assert_invariants(&out);
     Ok(out)
+}
+
+/// i128 版的四捨五入除法。
+///
+/// `money::div_round_half_up` 收 i64；這裡的中間值是「單價 × 數量千分位」，
+/// 在極端輸入下會超出 i64，所以整條路徑留在 i128 直到最後才落地。
+fn round_div_i128(num: i128, den: i128) -> i64 {
+    debug_assert!(den > 0);
+    let r = if num >= 0 {
+        (num * 2 + den) / (den * 2)
+    } else {
+        -((-num * 2 + den) / (den * 2))
+    };
+    r.clamp(i64::MIN as i128, i64::MAX as i128) as i64
 }
 
 /// 算一筆折扣的金額。回傳值恆為非負，且不超過 `base`。
