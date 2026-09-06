@@ -98,6 +98,10 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+# ServiceExt::oneshot：直接把請求餵給 Router，不必真的綁一個 port。
+# 測試因此是確定性的，也不會在 CI 上互相搶埠。
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1" 
 
 [features]
 default = ["gui", "server"]

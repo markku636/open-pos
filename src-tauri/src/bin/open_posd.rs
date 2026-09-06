@@ -18,6 +18,31 @@ struct Args {
     /// 允許把資料放在雲端同步資料夾（預設拒絕，理由見 guard.rs）。
     #[arg(long)]
     allow_cloud_sync: bool,
+
+    /// 區網服務的連接埠。
+    #[arg(long, default_value_t = open_pos::lan::DEFAULT_PORT)]
+    port: u16,
+
+    /// 靜態頁面目錄（KDS 與掃碼點餐）。預設找執行檔旁邊的 dist/。
+    #[arg(long)]
+    ui_dir: Option<PathBuf>,
+}
+
+/// 找 dist/：先看執行檔旁邊（正式安裝的樣子），再往上找 repo 根（開發時的樣子）。
+fn default_ui_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    for up in [0usize, 1, 2, 3] {
+        let mut base = dir.to_path_buf();
+        for _ in 0..up {
+            base = base.parent()?.to_path_buf();
+        }
+        let candidate = base.join("dist");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 #[tokio::main]
@@ -47,11 +72,31 @@ async fn main() {
     };
 
     println!("open-posd {} 已啟動", open_pos::VERSION);
-    println!("資料目錄：{}", rt.layout.root.display());
-    match rt.db.schema_fingerprint().await {
-        Ok(fp) => println!("schema 指紋長度：{}", fp.len()),
-        Err(e) => eprintln!("讀取 schema 指紋失敗：{e}"),
-    }
+    println!("資料目錄：{}", rt.ctx.layout.root.display());
 
-    rt.db.close().await;
+    let ui_dir = args.ui_dir.or_else(default_ui_dir);
+    let lan = match open_pos::lan::spawn(rt.ctx.clone(), args.port, ui_dir) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("open-pos 無法啟動：\n\n{e}");
+            std::process::exit(1);
+        }
+    };
+    // 刻意不印 lan.addr —— 它是 0.0.0.0（監聽所有介面），不是一個連得上的位址。
+    // 印出來只會讓使用者照著貼進瀏覽器然後失敗。
+    println!("區網服務：連接埠 {}", lan.addr.port());
+    println!("本機測試：http://127.0.0.1:{}", lan.addr.port());
+    match open_pos::lan::lan_base_url(args.port) {
+        // 這一行就是桌卡 QR 要印的位址。IP 一變全店桌卡就失效，
+        // 所以安裝精靈會要求店家在路由器設固定 IP / DHCP 保留。
+        Some(url) => println!("平板與手機請連：{url}"),
+        None => println!("找不到可用的區網位址 —— 請確認這台電腦已連上店內網路（有線或 Wi-Fi）。"),
+    }
+    println!("按 Ctrl+C 結束。");
+
+    // 等中斷訊號，然後優雅關閉：讓進行中的請求做完、把連線池收乾淨。
+    let _ = tokio::signal::ctrl_c().await;
+    println!("\n收到中斷訊號，正在關閉…");
+    lan.shutdown().await;
+    rt.ctx.db.close().await;
 }

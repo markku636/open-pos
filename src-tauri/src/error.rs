@@ -9,29 +9,34 @@
 
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
+/// # Display 為什麼不掛英文分類前綴
+///
+/// `kind()` 與 `code()` 已經帶了機器可讀的分類，而 `message()` 是**唯一會被
+/// 直接展示給使用者**的東西。在每一句中文訊息前面掛一個 `not found:` 只會
+/// 干擾閱讀 —— 尤其開機失敗與權限不足這兩類，讀的人是不懂電腦的店家。
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("not found: {0}")]
+    #[error("{0}")]
     NotFound(String),
 
     /// 使用者輸入不合法（金額為負、品項不存在、數量為 0）。
-    #[error("validation: {0}")]
+    #[error("{0}")]
     Validation(String),
 
     /// 樂觀鎖版本不符 / 狀態機不允許（單已結帳還想加點）。前端應重讀後重試。
-    #[error("conflict: {0}")]
+    #[error("{0}")]
     Conflict(String),
 
-    #[error("unauthorized")]
+    #[error("尚未登入或帳號已停用")]
     Unauthorized,
 
-    #[error("forbidden: {0}")]
+    #[error("{0}")]
     Forbidden(String),
 
-    #[error("database: {0}")]
+    #[error("資料庫錯誤：{0}")]
     Db(String),
 
-    #[error("storage: {0}")]
+    #[error("檔案存取錯誤：{0}")]
     Storage(String),
 
     /// 開機期安全檢查失敗（網路磁碟、雲端同步資料夾、已有另一個實例在跑）。
@@ -43,19 +48,19 @@ pub enum AppError {
     #[error("{0}")]
     Startup(String),
 
-    #[error("printer: {0}")]
+    #[error("出單機錯誤：{0}")]
     Printer(String),
 
-    #[error("e-invoice: {0}")]
+    #[error("電子發票錯誤：{0}")]
     Fiscal(String),
 
-    #[error("unsupported: {0}")]
+    #[error("{0}")]
     Unsupported(String),
 
-    #[error("timeout after {0} ms")]
+    #[error("逾時（{0} 毫秒）")]
     Timeout(u64),
 
-    #[error("internal: {0}")]
+    #[error("內部錯誤：{0}")]
     Internal(String),
 }
 
@@ -173,7 +178,7 @@ mod tests {
         let json = serde_json::to_value(AppError::NotFound("order".into())).unwrap();
         assert_eq!(json["kind"], "not_found");
         assert_eq!(json["code"], "ERR_NOT_FOUND");
-        assert!(json["message"].as_str().unwrap().contains("order"));
+        assert_eq!(json["message"], "order");
         assert_eq!(json["retryable"], false);
     }
 }

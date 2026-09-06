@@ -14,9 +14,12 @@
 //! 交易邊界在 `services/`（一次 use case 一個 UnitOfWork），不在 repo 方法裡。
 
 pub mod core;
+pub mod ctx;
 pub mod error;
 pub mod guard;
 pub mod infra;
+#[cfg(feature = "server")]
+pub mod lan;
 pub mod paths;
 pub mod services;
 
@@ -31,8 +34,7 @@ use paths::DataLayout;
 
 /// 啟動後的執行環境。
 pub struct Runtime {
-    pub layout: DataLayout,
-    pub db: Db,
+    pub ctx: ctx::Ctx,
     /// 單實例鎖。**必須留著** —— 它一被 drop，別的實例就能同時開這份資料。
     _lock: InstanceLock,
 }
@@ -82,9 +84,14 @@ pub async fn boot(opts: BootOptions) -> AppResult<Runtime> {
         created_store,
         "open-pos 啟動完成"
     );
+
+    let Db::Sqlite(sqlite) = db;
     Ok(Runtime {
-        layout,
-        db,
+        ctx: std::sync::Arc::new(ctx::AppCtx {
+            db: sqlite,
+            layout,
+            started_at: now.at,
+        }),
         _lock: lock,
     })
 }
