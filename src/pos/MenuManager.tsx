@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import ModifierPane from './ModifierPane'
+
 import {
   menuApi,
   type AppError,
@@ -7,6 +9,7 @@ import {
   type CategoryNode,
   type Item,
   type MenuTree,
+  type ModifierGroup,
   type Variant,
 } from '@/shared/api'
 import { formatMoney, parseMoney } from '@/shared/money'
@@ -20,6 +23,9 @@ import { formatMoney, parseMoney } from '@/shared/money'
  * 所有欄位都是直接編輯後按儲存，沒有彈窗 —— 收銀機是觸控螢幕，
  * 疊層的彈窗在手指操作下很容易誤觸到後面那一層。
  */
+/** 左邊那一欄選到「選項群組」時的哨兵值。 */
+const MODIFIERS = '__modifiers__'
+
 export default function MenuManager() {
   const [tree, setTree] = useState<MenuTree | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -71,7 +77,7 @@ export default function MenuManager() {
   }
 
   const current: CategoryNode | null =
-    selected === 'uncategorized'
+    selected === 'uncategorized' || selected === MODIFIERS
       ? null
       : (tree.categories.find((c) => c.id === selected) ?? null)
   const items = selected === 'uncategorized' ? tree.uncategorized : (current?.items ?? [])
@@ -89,16 +95,24 @@ export default function MenuManager() {
           onSave={(input) => run(() => menuApi.upsertCategory(input))}
           onDelete={(id) => run(() => menuApi.deleteCategory(id))}
         />
-        <ItemPane
-          categoryId={selected === 'uncategorized' ? null : (current?.id ?? null)}
-          title={selected === 'uncategorized' ? '未分類' : (current?.name ?? '')}
-          items={items}
-          busy={busy}
-          onSave={(input) => run(() => menuApi.upsertItem(input))}
-          onDelete={(id) => run(() => menuApi.deleteItem(id))}
-          onSaveVariant={(input) => run(() => menuApi.upsertVariant(input))}
-          onDeleteVariant={(id) => run(() => menuApi.deleteVariant(id))}
-        />
+        {selected === MODIFIERS ? (
+          <ModifierPane tree={tree} busy={busy} run={run} />
+        ) : (
+          <ItemPane
+            categoryId={selected === 'uncategorized' ? null : (current?.id ?? null)}
+            title={selected === 'uncategorized' ? '未分類' : (current?.name ?? '')}
+            items={items}
+            groups={tree.modifierGroups}
+            busy={busy}
+            onSave={(input) => run(() => menuApi.upsertItem(input))}
+            onDelete={(id) => run(() => menuApi.deleteItem(id))}
+            onSaveVariant={(input) => run(() => menuApi.upsertVariant(input))}
+            onDeleteVariant={(id) => run(() => menuApi.deleteVariant(id))}
+            onSetGroups={(itemId, ids) =>
+              run(() => menuApi.setItemModifierGroups(itemId, ids))
+            }
+          />
+        )}
       </div>
     </div>
   )
@@ -216,6 +230,20 @@ function CategoryPane({
         </button>
       )}
 
+      {/* 選項群組是**店裡共用**的，不屬於任何一個分類 ——
+          所以它跟分類並排，而不是藏在某個品項底下。 */}
+      <button
+        className={`mt-2 truncate rounded px-3 py-2 text-left text-sm ${
+          selected === MODIFIERS
+            ? 'bg-sky-900 text-sky-100'
+            : 'bg-slate-900 text-slate-300 hover:bg-slate-800'
+        }`}
+        onClick={() => onSelect(MODIFIERS)}
+      >
+        選項群組
+        <span className="ml-2 text-xs text-slate-500">{tree.modifierGroups.length}</span>
+      </button>
+
       <div className="mt-2 flex gap-1">
         <input
           className="min-w-0 flex-1 rounded bg-slate-800 px-2 py-2 text-sm placeholder:text-slate-600"
@@ -253,15 +281,18 @@ function ItemPane({
   categoryId,
   title,
   items,
+  groups,
   busy,
   onSave,
   onDelete,
   onSaveVariant,
   onDeleteVariant,
+  onSetGroups,
 }: {
   categoryId: string | null
   title: string
   items: Item[]
+  groups: ModifierGroup[]
   busy: boolean
   onSave: (input: {
     id?: string
@@ -281,6 +312,7 @@ function ItemPane({
     price?: number
   }) => void
   onDeleteVariant: (id: string) => void
+  onSetGroups: (itemId: string, groupIds: string[]) => void
 }) {
   const [draft, setDraft] = useState(EMPTY_ITEM)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -314,6 +346,8 @@ function ItemPane({
             onDelete={onDelete}
             onSaveVariant={onSaveVariant}
             onDeleteVariant={onDeleteVariant}
+            groups={groups}
+            onSetGroups={onSetGroups}
           />
         ))}
       </div>
@@ -357,6 +391,8 @@ function ItemRow({
   onDelete,
   onSaveVariant,
   onDeleteVariant,
+  groups,
+  onSetGroups,
 }: {
   item: Item
   busy: boolean
@@ -377,6 +413,8 @@ function ItemRow({
     priceDelta?: number
   }) => void
   onDeleteVariant: (id: string) => void
+  groups: ModifierGroup[]
+  onSetGroups: (itemId: string, groupIds: string[]) => void
 }) {
   const [price, setPrice] = useState(String(item.basePrice))
   const [name, setName] = useState(item.name)
@@ -446,12 +484,20 @@ function ItemRow({
       </div>
 
       {expanded && (
-        <VariantEditor
-          item={item}
-          busy={busy}
-          onSave={onSaveVariant}
-          onDelete={onDeleteVariant}
-        />
+        <>
+          <VariantEditor
+            item={item}
+            busy={busy}
+            onSave={onSaveVariant}
+            onDelete={onDeleteVariant}
+          />
+          <GroupPicker
+            item={item}
+            groups={groups}
+            busy={busy}
+            onSetGroups={onSetGroups}
+          />
+        </>
       )}
     </div>
   )
@@ -539,6 +585,63 @@ function VariantEditor({
         >
           加規格
         </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 這個品項要問哪幾組選項。
+ *
+ * 整批送（不是加一個／刪一個）：畫面上是一排勾選框，整批送比較不會出現
+ * 「勾了但沒存到」那種狀態 —— 而那是使用者最不會發現的一種錯。
+ */
+function GroupPicker({
+  item,
+  groups,
+  busy,
+  onSetGroups,
+}: {
+  item: Item
+  groups: ModifierGroup[]
+  busy: boolean
+  onSetGroups: (itemId: string, groupIds: string[]) => void
+}) {
+  if (groups.length === 0) {
+    return (
+      <div className="border-t border-slate-800 px-3 py-2 pl-11 text-xs text-slate-600">
+        還沒有選項群組。到左邊的「選項群組」建一組「甜度」或「加購」，
+        點餐時就問得出來。
+      </div>
+    )
+  }
+  const on = new Set(item.modifierGroupIds)
+  return (
+    <div className="border-t border-slate-800 px-3 py-2 pl-11">
+      <p className="mb-1.5 text-xs text-slate-600">點這一項的時候要問：</p>
+      <div className="flex flex-wrap gap-1.5">
+        {groups.map((g) => (
+          <button
+            key={g.id}
+            className={`rounded px-3 py-1.5 text-sm ${
+              on.has(g.id) ? 'bg-sky-800 text-sky-50' : 'bg-slate-800 text-slate-400'
+            }`}
+            disabled={busy}
+            onClick={() =>
+              onSetGroups(
+                item.id,
+                on.has(g.id)
+                  ? item.modifierGroupIds.filter((x) => x !== g.id)
+                  : [...item.modifierGroupIds, g.id],
+              )
+            }
+          >
+            {g.name}
+            <span className="ml-1 text-xs opacity-60">
+              {g.selectionType === 'single' ? '單' : '複'}
+            </span>
+          </button>
+        ))}
       </div>
     </div>
   )
