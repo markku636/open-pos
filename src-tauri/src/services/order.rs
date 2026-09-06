@@ -694,6 +694,19 @@ pub async fn void_order(ctx: &Ctx, req: VoidOrderReq) -> AppResult<OrderView> {
         .execute(uow.conn())
         .await?;
 
+    // ★ 收款也要一起作廢。
+    //
+    //   作廢的語意是「這筆交易沒有發生過」，錢已經退還給客人了。
+    //   少了這一步，關班時那筆現金還會被算進「應有現金」——
+    //   於是每一次結帳後作廢都會變成一筆假的短少，而收銀員會被冤枉。
+    // payments 是 append-only 的紀錄（沒有 updated_at）：改的只有狀態。
+    sqlx::query(
+        "UPDATE payments SET status = 'voided' WHERE order_id = ?1 AND status = 'captured'",
+    )
+    .bind(&req.order_id)
+    .execute(uow.conn())
+    .await?;
+
     // 結帳後作廢要留一筆簽核紀錄，日結時看得到。
     if after_settle {
         sqlx::query(
