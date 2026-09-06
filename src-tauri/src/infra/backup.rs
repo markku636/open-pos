@@ -257,7 +257,7 @@ pub async fn restore_from(
 }
 
 /// 讀一個資料庫檔的 `_sqlx_migrations` 最高版本。
-async fn max_migration_version(path: &Path) -> AppResult<i64> {
+pub async fn max_migration_version(path: &Path) -> AppResult<i64> {
     let mut conn: SqliteConnection = SqliteConnectOptions::new()
         .filename(path)
         .read_only(true)

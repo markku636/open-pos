@@ -10,6 +10,8 @@
 
 pub mod app;
 pub mod audit;
+pub mod backup;
+pub mod backup_worker;
 pub mod demo;
 pub mod menu;
 pub mod order;

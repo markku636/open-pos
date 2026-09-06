@@ -67,6 +67,16 @@ pub async fn boot(opts: BootOptions) -> AppResult<Runtime> {
 
     let lock = guard::acquire_instance_lock(&layout.lock_file())?;
 
+    // ★ 還原必須在開啟資料庫**之前**套用。
+    //
+    //   資料庫檔案在程式跑的時候是開著的，Windows 上根本改不動它。
+    //   所以「還原」在 UI 上只是把備份放到暫存位置並留下標記，真正的替換
+    //   發生在這裡。順帶解掉一個更難的問題：套用到一半當機時標記還在，
+    //   下次開機會再套用一次 —— 就地替換在同樣情況下會留下一個殘破的資料庫。
+    if let Some(aside) = services::backup::apply_pending_restore(&layout).await? {
+        tracing::info!(aside = %aside.display(), "已從備份還原，原本的資料留在一旁");
+    }
+
     let db = Db::open(&DbConfig {
         backend: DbBackend::Sqlite,
         location: layout.db_file().to_string_lossy().into_owned(),
@@ -100,6 +110,10 @@ pub async fn boot(opts: BootOptions) -> AppResult<Runtime> {
     // 出單的背景工作。**開機就要跑**，而且要在區網服務之前 ——
     // 上一次關機時還沒印出去的單就在佇列裡等著，開店第一件事應該是把它們送出去。
     services::print_worker::spawn(ctx.clone());
+
+    // 備份排程。開機時會先檢查「上次備份距今多久」並在超時的情況下立刻補跑 ——
+    // 一台只在營業時間開機的收銀機，如果只靠「每小時整點」是會整天都沒備份的。
+    services::backup_worker::spawn(ctx.clone());
 
     Ok(Runtime { ctx, _lock: lock })
 }
@@ -222,6 +236,13 @@ pub fn run() {
             commands::record_cash_movement,
             commands::x_report,
             commands::close_business_day,
+            commands::get_settings,
+            commands::save_settings,
+            commands::run_backup,
+            commands::list_backups,
+            commands::stage_restore,
+            commands::cancel_restore,
+            commands::pending_restore,
         ])
         .setup(|app| {
             use tauri::Manager;

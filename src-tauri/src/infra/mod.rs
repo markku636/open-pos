@@ -2,3 +2,4 @@
 pub mod backup;
 pub mod db;
 pub mod printer;
+pub mod settings;

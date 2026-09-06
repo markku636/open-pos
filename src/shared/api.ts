@@ -489,3 +489,51 @@ export const shiftApi = {
   xReport: () => transport.call<ShiftReport>('x_report'),
   closeDay: () => transport.call<DayReport>('close_business_day'),
 }
+
+// ---------------------------------------------------------------- 備份與還原
+
+export interface BackupSettings {
+  /** 第二個實體媒體（建議是常插著的隨身碟）。備份跟資料庫同一顆硬碟只防誤刪，不防壞掉。 */
+  externalDir?: string | null
+  hourly: boolean
+  onClose: boolean
+}
+
+export interface AppSettings {
+  backup: BackupSettings
+}
+
+export interface BackupFile {
+  path: string
+  name: string
+  bucket: string
+  sizeBytes: number
+  modifiedAt?: string | null
+  external: boolean
+}
+
+export interface BackupRunResult {
+  localPath: string
+  externalPath?: string | null
+  sizeBytes: number
+  tookMs: number
+  /** 外接位置寫不進去時的說明。不是錯誤 —— 本機那一份已經好了。 */
+  externalError?: string | null
+}
+
+export interface PendingRestore {
+  source: string
+  stagedAt: string
+}
+
+export const backupApi = {
+  settings: () => transport.call<AppSettings>('get_settings'),
+  saveSettings: (settings: AppSettings) =>
+    transport.call<AppSettings>('save_settings', { settings }),
+  run: () => transport.call<BackupRunResult>('run_backup'),
+  list: () => transport.call<BackupFile[]>('list_backups'),
+  /** 準備還原。真正的替換發生在下一次啟動 —— 資料庫在程式跑的時候是開著的。 */
+  stageRestore: (path: string) => transport.call<string>('stage_restore', { path }),
+  cancelRestore: () => transport.call<void>('cancel_restore'),
+  pendingRestore: () => transport.call<PendingRestore | null>('pending_restore'),
+}

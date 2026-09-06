@@ -37,6 +37,7 @@ pub fn resolve_data_dir(cli_override: Option<&Path>) -> AppResult<PathBuf> {
 }
 
 /// 資料根目錄下的固定佈局。
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataLayout {
     pub root: PathBuf,
 }

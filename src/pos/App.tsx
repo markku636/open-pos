@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import AboutDialog from './AboutDialog'
+import BackupPanel from './BackupPanel'
 import MenuManager from './MenuManager'
 import OrderScreen from './OrderScreen'
 import PrinterSettings from './PrinterSettings'
@@ -16,7 +17,7 @@ import {
 } from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'menu' | 'printer' | 'shift' | 'status'
+type Tab = 'order' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
@@ -62,6 +63,9 @@ export default function App() {
         <TabButton active={tab === 'shift'} onClick={() => setTab('shift')}>
           班別日結
         </TabButton>
+        <TabButton active={tab === 'backup'} onClick={() => setTab('backup')}>
+          備份
+        </TabButton>
         <TabButton active={tab === 'status'} onClick={() => setTab('status')}>
           系統狀態
         </TabButton>
@@ -89,6 +93,7 @@ export default function App() {
         {tab === 'menu' && <MenuManager />}
         {tab === 'printer' && <PrinterSettings />}
         {tab === 'shift' && <ShiftPanel />}
+        {tab === 'backup' && <BackupPanel />}
         {tab === 'status' && <StatusPanel info={info} error={infoError} />}
       </main>
 
@@ -172,7 +177,7 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
           <li>● 點餐、結帳、商品維護：可以用了</li>
           <li>● 出單機（ESC/POS 網路型）：可以用了</li>
           <li>● 班別交接與日結：可以用了</li>
-          <li>○ 備份排程與還原介面：規劃中</li>
+          <li>● 備份與還原：可以用了</li>
         </ul>
       </section>
 

@@ -290,3 +290,48 @@ pub async fn x_report(ctx: State<'_, Ctx>) -> AppResult<services::shift::ShiftRe
 pub async fn close_business_day(ctx: State<'_, Ctx>) -> AppResult<services::shift::DayReport> {
     services::shift::close_business_day(&ctx).await
 }
+
+// ---------------------------------------------------------------- 備份與還原
+
+#[tauri::command]
+pub async fn get_settings(ctx: State<'_, Ctx>) -> AppResult<crate::infra::settings::AppSettings> {
+    services::backup::get_settings(&ctx).await
+}
+
+#[tauri::command]
+pub async fn save_settings(
+    ctx: State<'_, Ctx>,
+    settings: crate::infra::settings::AppSettings,
+) -> AppResult<crate::infra::settings::AppSettings> {
+    services::backup::save_settings(&ctx, settings).await
+}
+
+#[tauri::command]
+pub async fn run_backup(ctx: State<'_, Ctx>) -> AppResult<services::backup::BackupRunResult> {
+    // 手動備份歸在「每小時」那一組：它跟自動備份是同一種東西，
+    // 分開放只會讓輪替規則變成兩套。
+    services::backup::run_backup(&ctx, crate::infra::backup::BackupBucket::Hourly).await
+}
+
+#[tauri::command]
+pub async fn list_backups(ctx: State<'_, Ctx>) -> AppResult<Vec<services::backup::BackupFile>> {
+    services::backup::list_backups(&ctx).await
+}
+
+/// 準備還原。真正的替換發生在下一次啟動 —— 資料庫在程式跑的時候是開著的。
+#[tauri::command]
+pub async fn stage_restore(ctx: State<'_, Ctx>, path: String) -> AppResult<String> {
+    services::backup::stage_restore(&ctx, path).await
+}
+
+#[tauri::command]
+pub async fn cancel_restore(ctx: State<'_, Ctx>) -> AppResult<()> {
+    services::backup::cancel_restore(&ctx).await
+}
+
+#[tauri::command]
+pub async fn pending_restore(
+    ctx: State<'_, Ctx>,
+) -> AppResult<Option<services::backup::PendingRestore>> {
+    services::backup::pending_restore(&ctx).await
+}

@@ -27,6 +27,7 @@ use crate::core::clock::Stamp;
 use crate::core::ids::Id;
 use crate::ctx::Ctx;
 use crate::error::{AppError, AppResult};
+use crate::infra::backup::BackupBucket;
 use crate::infra::db::sqlite::uow::SqliteUow;
 use crate::services::audit::{self, AuditAction, AuditEntry};
 use crate::services::rbac;
@@ -698,6 +699,11 @@ pub async fn close_shift(ctx: &Ctx, req: CloseShiftReq) -> AppResult<ShiftReport
 
     uow.commit().await?;
 
+    // 備份放在 commit 之後：它會另外開一條連線做 VACUUM INTO，
+    // 在交易裡做等於讓全店的寫入排在一次整份複製後面。
+    // 失敗也不影響關班 —— 班一定要關得掉，錢已經數完了。
+    crate::services::backup_worker::backup_on_close(ctx, BackupBucket::Shift).await;
+
     Ok(report)
 }
 
@@ -878,6 +884,8 @@ pub async fn close_business_day(ctx: &Ctx) -> AppResult<DayReport> {
     enqueue_report(&mut uow, "print.day_report", &business_date, doc, &now).await?;
 
     uow.commit().await?;
+
+    crate::services::backup_worker::backup_on_close(ctx, BackupBucket::Daily).await;
 
     Ok(report)
 }
