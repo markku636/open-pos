@@ -546,3 +546,27 @@ async fn a_whole_business_day_adds_up() {
 
     e.ctx.db.close().await;
 }
+
+/// ★ 舊的日結快照升級之後還要讀得出來。
+///
+/// `business_days.summary_json` 存的是**當天算好的數字**，而報表是那一天唯一
+/// 的紀錄。新增一個沒有 `#[serde(default)]` 的欄位，就會讓升級之前關過的每一天
+/// 變成「這一天的日結資料讀不懂」—— 而且是在有人要查帳的時候才發現。
+#[tokio::test]
+async fn an_older_day_snapshot_still_parses() {
+    // 這一段是 v0.1.0（還沒有退款功能）時真的會存進去的形狀。
+    let old = r#"{
+        "businessDate": "2026-09-01",
+        "zReportNo": "Z-20260901-0001",
+        "closedAt": "2026-09-01T14:00:00.000Z",
+        "sales": {"bills":3,"subtotal":215,"discount":0,"serviceCharge":0,
+                  "rounding":0,"sales":204,"tax":11,"total":215},
+        "payments": [],
+        "voids": {"voidedLines":0,"voidedAmount":0},
+        "shifts": [],
+        "topItems": []
+    }"#;
+    let report: shift::DayReport = serde_json::from_str(old).expect("舊快照讀不回來了");
+    assert_eq!(report.sales.total, 215);
+    assert_eq!(report.refunds.amount, 0, "沒有那一欄的舊資料應該是 0");
+}

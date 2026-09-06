@@ -104,6 +104,7 @@ pub struct CashSummary {
     pub paid_in: i64,
     pub paid_out: i64,
     /// 現金退款。錢是從抽屜拿出去的，所以要扣。
+    #[serde(default)]
     pub cash_refunds: i64,
     /// 應有現金 = 開班準備金 + 現金銷售 + 收入 − 支出 − 現金退款。
     pub expected: i64,
@@ -145,6 +146,11 @@ pub struct ShiftReport {
     pub payments: Vec<PaymentTotal>,
     pub cash: CashSummary,
     pub voids: VoidTotals,
+    /// ★ 新欄位一律要 `#[serde(default)]`。
+    ///
+    /// 這個型別會被存進 `shifts.summary_json` 再讀回來。少了 default，
+    /// **升級之前關的班就再也讀不出來了** —— 而報表是那一天唯一的紀錄。
+    #[serde(default)]
     pub refunds: RefundTotals,
 }
 
@@ -157,6 +163,8 @@ pub struct DayReport {
     pub sales: SalesTotals,
     pub payments: Vec<PaymentTotal>,
     pub voids: VoidTotals,
+    /// 同上：日結報表也是存起來之後才讀回來的快照。
+    #[serde(default)]
     pub refunds: RefundTotals,
     /// 各班的現金差異。日結時最該被看的一欄。
     pub shifts: Vec<ShiftView>,
