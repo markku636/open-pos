@@ -23,6 +23,7 @@ pub mod infra;
 #[cfg(feature = "server")]
 pub mod lan;
 pub mod paths;
+pub mod receipt;
 pub mod services;
 
 use std::path::{Path, PathBuf};

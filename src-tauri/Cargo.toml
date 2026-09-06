@@ -77,6 +77,10 @@ chrono-tz = "0.10"
 ulid = { version = "1", features = ["serde"] }
 # 前端產生的冪等鍵是 UUIDv4，這裡只負責解析驗證。
 uuid = { version = "1", features = ["v4", "serde"] }
+# 東亞字寬（UAX #11）。收據對齊的單一事實來源。
+# 一律用 width_cjk()（Ambiguous = 2）而不是 width()：「※」「℃」「—」在 UAX #11
+# 是 Ambiguous，但在 CJK 語境（含所有 Big5 字型）它們是全形。判 1 會讓右欄整排對不齊。
+unicode-width = "0.2"
 once_cell = "1"
 parking_lot = "0.12"
 dirs = "6"
