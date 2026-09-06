@@ -874,3 +874,43 @@ export interface AuditQuery {
 export const auditApi = {
   query: (query: AuditQuery) => transport.call<AuditReport>('audit_query', { query }),
 }
+
+// ---------------------------------------------------------------- 營運分析
+
+export interface HourBucket {
+  /** 0–23，店家時區。 */
+  hour: number
+  bills: number
+  total: number
+}
+
+export interface NamedTotal {
+  label: string
+  count: number
+  amount: number
+}
+
+export interface Insight {
+  from: string
+  to: string
+  bills: number
+  total: number
+  /** 平均客單價（營業額 ÷ 帳單數）。 */
+  averageBill: number
+  hours: HourBucket[]
+  discounts: NamedTotal[]
+  voids: NamedTotal[]
+  items: NamedTotal[]
+  channels: NamedTotal[]
+}
+
+/**
+ * 一段期間的營運分析。
+ *
+ * 跟 Z 報表的分工：Z 報表是當天算好、永不重算的快照（稅務與交接的問題），
+ * 這一支是現算的（老闆的問題：哪個時段最忙、這個月折掉多少）。
+ */
+export const insightApi = {
+  query: (query: { from?: string | null; to?: string | null }) =>
+    transport.call<Insight>('insight', { query }),
+}

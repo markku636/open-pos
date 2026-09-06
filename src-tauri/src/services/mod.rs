@@ -8,6 +8,7 @@
 //! * 一個 use case 只取一次時間戳（`Stamp`），往下傳 —— 同一筆交易的多張表
 //!   必須拿到完全相同的時間，否則報表對不起來。
 
+pub mod analytics;
 pub mod app;
 pub mod audit;
 pub mod backup;

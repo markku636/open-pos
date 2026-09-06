@@ -15,7 +15,7 @@ use open_pos::core::pricing::Channel;
 use open_pos::ctx::{AppCtx, Ctx};
 use open_pos::infra::db::sqlite::SqliteDb;
 use open_pos::paths::DataLayout;
-use open_pos::services::{demo, menu, order, refund, shift, table};
+use open_pos::services::{analytics, demo, menu, order, refund, shift, table};
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -543,6 +543,55 @@ async fn a_whole_business_day_adds_up() {
         .await
         .unwrap();
     assert_eq!(queued, 21, "該印的張數不對 —— 漏印比重複印嚴重得多");
+
+    // ── 營運分析：現算的那一份，要跟 Z 報表的快照對得起來 ─────
+    let i = analytics::insight(&e.ctx, analytics::InsightQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(i.bills, 7);
+    assert_eq!(i.total, 596, "現算的營業額要跟 Z 報表一致");
+    assert_eq!(i.average_bill, 596 / 7);
+
+    // 時段是用**店家時區**分的。全部發生在同一個小時內，所以只有一桶；
+    // 而那個小時必須是台北時間的小時，不是 UTC 的。
+    assert_eq!(i.hours.len(), 1, "全部在同一小時內結的帳：{:?}", i.hours);
+    assert_eq!(i.hours[0].bills, 7);
+    assert_eq!(i.hours[0].total, 596);
+
+    // 招待與折扣分開列 —— 老闆對「送出去的東西」與「少收的錢」容忍度不同。
+    assert!(
+        i.discounts.iter().any(|d| d.label.starts_with("招待：")),
+        "招待要單獨看得到：{:?}",
+        i.discounts
+    );
+    assert!(
+        i.discounts.iter().any(|d| d.label.starts_with("折扣：")),
+        "{:?}",
+        i.discounts
+    );
+
+    // 「退點」與「整單作廢」要分開列：⑤ 退掉味噌湯 25，⑥ 整單作廢控肉飯 85。
+    // 整單作廢會把那張單所有的行一起標成作廢，所以它也在這份統計裡 ——
+    // 但它是另一種事，不能跟「點錯退一項」混在同一個數字。
+    let line_void = i
+        .voids
+        .iter()
+        .find(|v| v.label.starts_with("退點："))
+        .unwrap();
+    assert_eq!(line_void.amount, 25, "{:?}", i.voids);
+    let order_void = i
+        .voids
+        .iter()
+        .find(|v| v.label.starts_with("整單作廢："))
+        .unwrap();
+    assert_eq!(order_void.amount, 85, "{:?}", i.voids);
+
+    // 內用（②⑦）與外帶都要在。⑦ 是內用，所以內用不會是 0。
+    let dine_in = i.channels.iter().find(|c| c.label == "內用").unwrap();
+    assert_eq!(dine_in.amount, 121 + 77, "內用的營業額不對");
+
+    // 品項排行看得到牛肉麵。
+    assert!(i.items.iter().any(|x| x.label == "牛肉麵"));
 
     e.ctx.db.close().await;
 }

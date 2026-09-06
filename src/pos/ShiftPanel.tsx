@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import AuditPanel from './AuditPanel'
+import InsightPanel from './InsightPanel'
 import {
   reportApi,
   shiftApi,
@@ -32,7 +33,7 @@ const DENOMINATIONS = [1000, 500, 200, 100, 50, 10, 5, 1]
  * 「今天收了多少、對不對得起來、有沒有人動了不該動的錢」。
  */
 export default function ShiftPanel() {
-  const [view, setView] = useState<'shift' | 'audit'>('shift')
+  const [view, setView] = useState<View>('shift')
 
   const [status, setStatus] = useState<DayStatus | null>(null)
   const [counts, setCounts] = useState<Record<number, string>>({})
@@ -77,12 +78,12 @@ export default function ShiftPanel() {
   const shift = status?.shift ?? null
   const dayClosed = status?.status === 'closed' || status?.status === 'locked'
 
-  if (view === 'audit') {
+  if (view !== 'shift') {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <SubTabs view={view} onView={setView} />
         <div className="min-h-0 flex-1">
-          <AuditPanel />
+          {view === 'audit' ? <AuditPanel /> : <InsightPanel />}
         </div>
       </div>
     )
@@ -343,18 +344,15 @@ export default function ShiftPanel() {
   )
 }
 
-function SubTabs({
-  view,
-  onView,
-}: {
-  view: 'shift' | 'audit'
-  onView: (v: 'shift' | 'audit') => void
-}) {
+type View = 'shift' | 'insight' | 'audit'
+
+function SubTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
   return (
     <div className="mb-3 flex gap-1">
       {(
         [
           ['shift', '班別與日結'],
+          ['insight', '營運分析'],
           ['audit', '稽核紀錄'],
         ] as const
       ).map(([k, label]) => (

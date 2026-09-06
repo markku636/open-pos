@@ -473,3 +473,12 @@ pub async fn audit_query(
 ) -> AppResult<services::audit::AuditReport> {
     services::audit::query(&ctx, query).await
 }
+
+/// 一段期間的營運分析（時段分布、折扣統計、品項排行）。需要 `report.daily`。
+#[tauri::command]
+pub async fn insight(
+    ctx: State<'_, Ctx>,
+    query: services::analytics::InsightQuery,
+) -> AppResult<services::analytics::Insight> {
+    services::analytics::insight(&ctx, query).await
+}
