@@ -165,3 +165,83 @@ pub async fn payment_methods(
 ) -> AppResult<Vec<services::app::PaymentMethodView>> {
     services::app::payment_methods(&ctx).await
 }
+
+// ---------------------------------------------------------------- 出單機
+//
+// ★ 這一組**刻意不掛在 `lan::router` 上**。
+//   區網那邊的呼叫者是顧客手機與廚房平板；就算區網服務有漏洞，
+//   攻擊面也只到「亂送單」，到不了「改設定」或「看失敗的單」。
+
+#[tauri::command]
+pub async fn list_printers(ctx: State<'_, Ctx>) -> AppResult<Vec<services::printer::PrinterView>> {
+    services::printer::list_printers(&ctx).await
+}
+
+#[tauri::command]
+pub async fn upsert_printer(
+    ctx: State<'_, Ctx>,
+    input: services::printer::PrinterInput,
+) -> AppResult<services::printer::PrinterView> {
+    services::printer::upsert_printer(&ctx, input).await
+}
+
+#[tauri::command]
+pub async fn delete_printer(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::printer::delete_printer(&ctx, id).await
+}
+
+#[tauri::command]
+pub async fn probe_printer(
+    ctx: State<'_, Ctx>,
+    id: String,
+) -> AppResult<services::printer::ProbeResult> {
+    services::printer::probe_printer(&ctx, id).await
+}
+
+#[tauri::command]
+pub async fn test_print(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::printer::test_print(&ctx, id).await
+}
+
+#[tauri::command]
+pub async fn list_stations(ctx: State<'_, Ctx>) -> AppResult<Vec<services::printer::StationView>> {
+    services::printer::list_stations(&ctx).await
+}
+
+#[tauri::command]
+pub async fn upsert_station(
+    ctx: State<'_, Ctx>,
+    input: services::printer::StationInput,
+) -> AppResult<services::printer::StationView> {
+    services::printer::upsert_station(&ctx, input).await
+}
+
+#[tauri::command]
+pub async fn delete_station(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::printer::delete_station(&ctx, id).await
+}
+
+#[tauri::command]
+pub async fn print_queue_status(
+    ctx: State<'_, Ctx>,
+) -> AppResult<services::printer::PrintQueueStatus> {
+    services::printer::queue_status(&ctx).await
+}
+
+#[tauri::command]
+pub async fn list_print_jobs(
+    ctx: State<'_, Ctx>,
+    limit: Option<i64>,
+) -> AppResult<Vec<services::printer::PrintJobView>> {
+    services::printer::list_print_jobs(&ctx, limit).await
+}
+
+#[tauri::command]
+pub async fn retry_print_job(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::printer::retry_print_job(&ctx, id).await
+}
+
+#[tauri::command]
+pub async fn cancel_print_job(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::printer::cancel_print_job(&ctx, id).await
+}

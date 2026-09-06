@@ -22,6 +22,8 @@
 pub mod escpos;
 pub mod file;
 pub mod network;
+pub mod queue;
+pub mod routing;
 
 use std::time::Duration;
 

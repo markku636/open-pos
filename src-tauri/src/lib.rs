@@ -90,15 +90,18 @@ pub async fn boot(opts: BootOptions) -> AppResult<Runtime> {
 
     let Db::Sqlite(sqlite) = db;
     let actor = services::seed::default_actor(&sqlite).await?;
-    Ok(Runtime {
-        ctx: std::sync::Arc::new(ctx::AppCtx {
-            db: sqlite,
-            layout,
-            started_at: now.at,
-            actor,
-        }),
-        _lock: lock,
-    })
+    let ctx = std::sync::Arc::new(ctx::AppCtx {
+        db: sqlite,
+        layout,
+        started_at: now.at,
+        actor,
+    });
+
+    // 出單的背景工作。**開機就要跑**，而且要在區網服務之前 ——
+    // 上一次關機時還沒印出去的單就在佇列裡等著，開店第一件事應該是把它們送出去。
+    services::print_worker::spawn(ctx.clone());
+
+    Ok(Runtime { ctx, _lock: lock })
 }
 
 /// 初始化 log。診斷包要靠它 —— 地端 + 離線 + 非技術使用者，
@@ -190,6 +193,18 @@ pub fn run() {
             commands::get_order,
             commands::list_open_orders,
             commands::payment_methods,
+            commands::list_printers,
+            commands::upsert_printer,
+            commands::delete_printer,
+            commands::probe_printer,
+            commands::test_print,
+            commands::list_stations,
+            commands::upsert_station,
+            commands::delete_station,
+            commands::print_queue_status,
+            commands::list_print_jobs,
+            commands::retry_print_job,
+            commands::cancel_print_job,
         ])
         .setup(|app| {
             use tauri::Manager;

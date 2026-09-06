@@ -85,6 +85,9 @@ unicode-width = "0.2"
 # 出單機的中文編碼。ESC/POS 文字模式送的是 Big5 或 GB18030 的雙位元組，
 # 不是 UTF-8 —— 而 escpos crate 的 38 個 PageCode 裡完全沒有中文碼頁。
 encoding_rs = "0.8"
+# 列印工作的內容指紋（doc_sha256）。純 Rust，RustCrypto 出品，
+# 用途是「這兩張單是不是同一份」而不是安全性。
+sha2 = "0.10"
 once_cell = "1"
 parking_lot = "0.12"
 dirs = "6"

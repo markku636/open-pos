@@ -13,6 +13,8 @@ pub mod audit;
 pub mod demo;
 pub mod menu;
 pub mod order;
+pub mod print_worker;
+pub mod printer;
 pub mod rbac;
 pub mod seed;
 pub mod sequence;

@@ -47,12 +47,20 @@ impl FilePrinter {
     /// 這一單要寫到哪個檔。
     ///
     /// 附加模式：固定同一個檔（當成一卷紙）。
-    /// 非附加模式：`<path>/<stem>-000001.bin`，一單一檔。
+    /// 非附加模式：`<path>/<stem>-<毫秒>-<序號>.bin`，一單一檔。
+    ///
+    /// ★ 檔名一定要帶時間戳，光靠序號不夠：driver 是每一批工作重開一次的，
+    ///   序號會跟著歸零，於是第二批的第一張單會**安靜地覆蓋**第一批的第一張。
+    ///   而「檔案被覆蓋」這種壞法，是要等到有人回頭找那張單時才會發現的。
     fn target(&self) -> PathBuf {
         if self.append {
             return self.path.clone();
         }
         let n = self.seq.fetch_add(1, Ordering::Relaxed);
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
         let stem = self
             .path
             .file_stem()
@@ -64,7 +72,7 @@ impl FilePrinter {
             .and_then(|s| s.to_str())
             .unwrap_or("bin");
         let dir = self.path.parent().unwrap_or_else(|| Path::new("."));
-        dir.join(format!("{stem}-{n:06}.{ext}"))
+        dir.join(format!("{stem}-{ms}-{n:04}.{ext}"))
     }
 
     async fn ensure_dir(target: &Path) -> AppResult<()> {
@@ -182,7 +190,12 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        assert_eq!(names, vec!["job-000000.bin", "job-000001.bin"]);
+        assert_eq!(names.len(), 2, "一單一檔：{names:?}");
+        assert!(names
+            .iter()
+            .all(|n| n.starts_with("job-") && n.ends_with(".bin")));
+        // 檔名不能只靠序號 —— driver 每一批重開一次，序號會歸零並覆蓋前一批。
+        assert_ne!(names[0], names[1]);
         // `.part` 必須已經被 rename 掉 —— 監看資料夾的程式不該看到半成品。
         assert!(names.iter().all(|n| !n.ends_with(".part")));
     }
@@ -213,5 +226,30 @@ mod tests {
         );
         assert!(!p.caps().drawer);
         assert!(!p.caps().status_query);
+    }
+
+    #[tokio::test]
+    async fn a_second_batch_does_not_overwrite_the_first() {
+        // ★ driver 是每一批工作重開一次的。光靠序號的話，
+        // 第二批的第一張單會安靜地蓋掉第一批的第一張。
+        let path = tmp("batches");
+        let caps = PrinterCaps::conservative(PaperWidth::Mm58);
+        FilePrinter::new(path.clone(), false, caps.clone())
+            .send(b"first batch", deadline::SEND_TEXT)
+            .await
+            .unwrap();
+        // 明確跨過一毫秒，讓時間戳一定不同。
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        FilePrinter::new(path.clone(), false, caps)
+            .send(b"second batch", deadline::SEND_TEXT)
+            .await
+            .unwrap();
+
+        let dir = path.parent().unwrap();
+        let files: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(files.len(), 2, "第二批蓋掉了第一批：{files:?}");
     }
 }

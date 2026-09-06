@@ -804,12 +804,19 @@ struct ResolvedLine {
     tax_code: String,
     unit_price: i64,
     modifiers: Vec<(String, String, String, i64)>, // (id, group_name, name, price)
+    /// 這一行要出到哪一個分區。三層預設：品項 > 分類 > 沒有。
+    ///
+    /// **在下單當下就決定並快照**，不是出單時才去查。之後老闆把「珍珠奶茶」
+    /// 改到別的分區，已經送進廚房的那張單不該跟著跳到另一台機器上；
+    /// 補印時也必須印回原來那一台。
+    station_id: Option<String>,
 }
 
 async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLine> {
     let r = sqlx::query(
         "SELECT i.name, i.short_name, i.base_price, i.tax_code, i.category_id, i.sold_out_until,
-                c.name AS category_name
+                c.name AS category_name,
+                COALESCE(i.station_id, c.default_station_id) AS station_id
            FROM items i
            LEFT JOIN categories c ON c.id = i.category_id
           WHERE i.id = ?1 AND i.deleted_at IS NULL AND i.is_active = 1",
@@ -878,6 +885,7 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
         tax_code: r.get("tax_code"),
         unit_price,
         modifiers,
+        station_id: r.get("station_id"),
     })
 }
 
@@ -900,9 +908,9 @@ async fn insert_line(
                                   name_snapshot, short_name_snapshot, variant_name_snapshot,
                                   category_id_snapshot, category_name_snapshot,
                                   unit_price_snapshot, tax_code_snapshot,
-                                  qty_milli, unit_price, note, kitchen_status,
+                                  qty_milli, unit_price, note, station_id, kitchen_status,
                                   created_by, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?11, ?14,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?11, ?14, ?16,
                  'pending', NULL, ?15, ?15)",
     )
     .bind(&line_id)
@@ -920,6 +928,7 @@ async fn insert_line(
     .bind(qty)
     .bind(&l.note)
     .bind(now.iso())
+    .bind(&r.station_id)
     .execute(uow.conn())
     .await?;
 
@@ -1203,6 +1212,7 @@ async fn build_ticket_data(
     order_id: &str,
     reason: TicketReason,
     now: &Stamp,
+    only_lines: Option<&std::collections::HashSet<String>>,
 ) -> AppResult<TicketData> {
     let v = load_order_view(uow, order_id).await?;
     let channel = match v.channel.as_str() {
@@ -1216,10 +1226,20 @@ async fn build_ticket_data(
         order_no: v.order_no.clone(),
         channel_label: channel_label(channel).to_string(),
         table_label: v.table_label.clone(),
-        printed_at: now.iso()[..16].replace('T', " "),
+        // ★ 用店家的時區，不是 UTC。
+        //
+        // 資料庫裡一律存 UTC（字典序即時序、換 PG 免轉換），但**印在紙上的
+        // 時間是給人看的**：一位台灣店員在晚上九點半拿到一張寫著 13:35 的單，
+        // 只會以為系統壞了。時區轉換就發生在這一行、只發生在這一行。
+        printed_at: now
+            .at
+            .with_timezone(&store.day.tz)
+            .format("%Y-%m-%d %H:%M")
+            .to_string(),
         lines: v
             .lines
             .iter()
+            .filter(|l| only_lines.is_none_or(|keep| keep.contains(&l.id)))
             .map(|l| TicketLine {
                 // 廚房單優先用短名 —— 58mm 一行只放得下約 9 個中文字。
                 name: match &l.variant_name {
@@ -1247,6 +1267,14 @@ async fn build_ticket_data(
     })
 }
 
+/// 廚房單。**一個出單分區一張**，不是整單一張。
+///
+/// 飲料吧不需要看到熱炒的品項，熱炒區也不需要看到飲料 —— 印給他們只會讓
+/// 廚師在一張長長的單上找自己那幾行，尖峰時間那就是漏做的來源。
+///
+/// 分區來自 `order_items.station_id`，那是**下單當下就快照好的**。
+/// 這裡刻意只做到「分區」而不是「印表機」：哪一台機器負責哪一區是設定，
+/// 而設定可能在單已經排隊之後才被改（或才第一次被設定）。
 async fn enqueue_kitchen_ticket(
     uow: &mut SqliteUow,
     _ctx: &Ctx,
@@ -1255,13 +1283,51 @@ async fn enqueue_kitchen_ticket(
     reason: TicketReason,
     now: &Stamp,
 ) -> AppResult<()> {
-    let data = build_ticket_data(uow, store, order_id, reason, now).await?;
+    use std::collections::{BTreeMap, HashSet};
+
     let business_date = data_business_date(uow, order_id).await?;
-    // 存的是**已排版的 doc**，不是 order_id。補印時直接重送這份 doc ——
-    // 重跑業務邏輯會印出「訂單被改過之後」的內容，而廚房單是「當時的指令」。
-    let doc = templates::kitchen_ticket(&data, PaperWidth::Mm80);
-    let payload = serde_json::json!({ "orderId": order_id, "reason": reason, "doc": doc });
-    enqueue_print(uow, "print.kitchen", &business_date, &payload, now).await
+
+    let rows = sqlx::query(
+        "SELECT oi.id, oi.station_id, ps.name AS station_name
+           FROM order_items oi
+           LEFT JOIN print_stations ps ON ps.id = oi.station_id AND ps.deleted_at IS NULL
+          WHERE oi.order_id = ?1 AND oi.voided_at IS NULL
+          ORDER BY oi.line_no",
+    )
+    .bind(order_id)
+    .fetch_all(uow.conn())
+    .await?;
+
+    // BTreeMap：輸出順序必須可重現（稽核與快照測試都靠它）。
+    let mut groups: BTreeMap<Option<String>, (Option<String>, HashSet<String>)> = BTreeMap::new();
+    for r in &rows {
+        let station_id: Option<String> = r.get("station_id");
+        let station_name: Option<String> = r.get("station_name");
+        let entry = groups
+            .entry(station_id)
+            .or_insert((station_name, HashSet::new()));
+        entry.1.insert(r.get::<String, _>("id"));
+    }
+
+    for (station_id, (station_name, line_ids)) in groups {
+        if line_ids.is_empty() {
+            continue;
+        }
+        let mut data =
+            build_ticket_data(uow, store, order_id, reason, now, Some(&line_ids)).await?;
+        data.station = station_name;
+        // 存的是**已排版的 doc**，不是 order_id。補印時直接重送這份 doc ——
+        // 重跑業務邏輯會印出「訂單被改過之後」的內容，而廚房單是「當時的指令」。
+        let doc = templates::kitchen_ticket(&data, PaperWidth::Mm80);
+        let payload = serde_json::json!({
+            "orderId": order_id,
+            "stationId": station_id,
+            "reason": reason,
+            "doc": doc,
+        });
+        enqueue_print(uow, "print.kitchen", &business_date, &payload, now).await?;
+    }
+    Ok(())
 }
 
 async fn enqueue_receipt(
@@ -1273,7 +1339,7 @@ async fn enqueue_receipt(
     change: i64,
     now: &Stamp,
 ) -> AppResult<()> {
-    let mut data = build_ticket_data(uow, store, order_id, TicketReason::Settle, now).await?;
+    let mut data = build_ticket_data(uow, store, order_id, TicketReason::Settle, now, None).await?;
     data.change = change;
     let payments = sqlx::query(
         "SELECT method_name_snapshot, amount FROM payments WHERE order_id = ?1 ORDER BY id",
