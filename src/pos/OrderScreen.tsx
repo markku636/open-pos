@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import DiscountDialog from './DiscountDialog'
+import ItemDialog, { defaultChoice, needsDialog, type Chosen } from './ItemDialog'
 import PaymentPanel from './PaymentPanel'
 import {
   demoApi,
@@ -54,6 +55,8 @@ export default function OrderScreen({
   const [paying, setPaying] = useState(false)
   /** null = 沒開；'' = 整單折扣；其他 = 那一行的折扣。 */
   const [discounting, setDiscounting] = useState<string | null>(null)
+  /** 正在選規格／選項的那一個品項。 */
+  const [choosing, setChoosing] = useState<Item | null>(null)
 
   // 從桌位圖帶進來的那一桌。接上它已經開著的單，沒有的話留白等第一個品項
   // 才真的開單 —— 「按了桌子就產生一張空單」會在桌位圖上留下一堆金額 0
@@ -134,7 +137,16 @@ export default function OrderScreen({
     }
   }, [order])
 
-  const addItem = async (item: Item) => {
+  /** 有規格或選項就先問，沒有的就直接進購物車。 */
+  const pickItem = (item: Item) => {
+    if (tree && needsDialog(item, tree)) {
+      setChoosing(item)
+      return
+    }
+    void addItem(item, tree ? defaultChoice(item, tree) : { variantId: null, modifierIds: [] })
+  }
+
+  const addItem = async (item: Item, chosen: Chosen) => {
     let target = order
     if (!target || target.status === 'settled') {
       const tableId = channel === 'dine_in' ? (seat?.table.id ?? null) : null
@@ -143,7 +155,13 @@ export default function OrderScreen({
       setOrder(target)
     }
     const updated = await run(() =>
-      orderApi.addLines(target!.id, target!.rev, [{ itemId: item.id }]),
+      orderApi.addLines(target!.id, target!.rev, [
+        {
+          itemId: item.id,
+          variantId: chosen.variantId ?? undefined,
+          modifierIds: chosen.modifierIds.length > 0 ? chosen.modifierIds : undefined,
+        },
+      ]),
     )
     if (updated) setOrder(updated)
   }
@@ -241,7 +259,7 @@ export default function OrderScreen({
                   // 一份做錯的餐，而畫面上多留一點白沒有任何代價。
                   className="flex min-h-[104px] flex-col justify-between rounded bg-slate-900 p-4 text-left transition hover:bg-slate-800 disabled:opacity-40"
                   disabled={busy || !!it.soldOutUntil}
-                  onClick={() => void addItem(it)}
+                  onClick={() => pickItem(it)}
                 >
                   <span className="text-base leading-snug">{it.name}</span>
                   <span className="mt-2 text-xl font-semibold text-sky-300">
@@ -420,6 +438,19 @@ export default function OrderScreen({
           </div>
         )}
       </aside>
+
+      {choosing && tree && (
+        <ItemDialog
+          item={choosing}
+          tree={tree}
+          onCancel={() => setChoosing(null)}
+          onAdd={(chosen) => {
+            const it = choosing
+            setChoosing(null)
+            void addItem(it, chosen)
+          }}
+        />
+      )}
 
       {discounting !== null && order && (
         <DiscountDialog

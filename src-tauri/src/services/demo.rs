@@ -33,6 +33,62 @@ struct DemoCategory {
 ///
 /// 四個品項的假菜單看起來很乾淨，但它會讓兩件事測不出來：畫面在**塞滿**時
 /// 好不好按（那才是尖峰時間的樣子），以及分類切換有沒有意義。
+/// 一個示範選項：`(名稱, 加價, 是否預設)`。
+type DemoOption = (&'static str, i64, bool);
+
+/// 一組示範選項：`(名稱, 是否複選, 最少選幾個, 選項)`。
+type DemoGroup = (&'static str, bool, i64, &'static [DemoOption]);
+
+/// 示範的選項群組。
+///
+/// 沒有這幾組，「珍奶半糖少冰」在系統裡就記不下來 —— 而那是台灣飲料店
+/// 每一杯都會發生的事。
+const MODIFIER_GROUPS: &[DemoGroup] = &[
+    (
+        "甜度",
+        false,
+        1,
+        &[
+            ("正常糖", 0, true),
+            ("少糖", 0, false),
+            ("半糖", 0, false),
+            ("微糖", 0, false),
+            ("無糖", 0, false),
+        ],
+    ),
+    (
+        "冰塊",
+        false,
+        1,
+        &[
+            ("正常冰", 0, true),
+            ("少冰", 0, false),
+            ("去冰", 0, false),
+            ("熱飲", 0, false),
+        ],
+    ),
+    (
+        "加料",
+        true,
+        0,
+        &[
+            ("加珍珠", 10, false),
+            ("加椰果", 10, false),
+            ("加布丁", 15, false),
+        ],
+    ),
+    (
+        "飯麵加點",
+        true,
+        0,
+        &[("加蛋", 10, false), ("加飯", 10, false), ("加辣", 0, false)],
+    ),
+];
+
+/// 哪一個分類要問哪幾組。
+const CATEGORY_GROUPS: &[(&str, &[&str])] =
+    &[("飲料", &["甜度", "冰塊", "加料"]), ("主餐", &["飯麵加點"])];
+
 const MENU: &[DemoCategory] = &[
     DemoCategory {
         name: "飲料",
@@ -167,6 +223,41 @@ pub async fn seed_demo_menu(ctx: &Ctx) -> AppResult<bool> {
         .await?;
     }
 
+    // 選項群組。先建好，等一下品項建完再掛上去。
+    let mut group_ids: std::collections::HashMap<&str, String> = Default::default();
+    for (i, (name, multiple, min, options)) in MODIFIER_GROUPS.iter().enumerate() {
+        let g = menu::upsert_modifier_group(
+            ctx,
+            menu::ModifierGroupInput {
+                id: None,
+                name: (*name).to_string(),
+                selection_type: Some(if *multiple { "multiple" } else { "single" }.to_string()),
+                min_select: Some(*min),
+                // 複選不設上限：加珍珠又加椰果是客人的自由。
+                max_select: Some(if *multiple { 0 } else { 1 }),
+                sort_order: Some(i as i64 * 10),
+            },
+        )
+        .await?;
+        for (j, (opt, price, default)) in options.iter().enumerate() {
+            menu::upsert_modifier(
+                ctx,
+                menu::ModifierInput {
+                    id: None,
+                    group_id: g.id.clone(),
+                    name: (*opt).to_string(),
+                    price: Some(*price),
+                    is_default: Some(*default),
+                    sold_out_until: None,
+                    sort_order: Some(j as i64 * 10),
+                    is_active: Some(true),
+                },
+            )
+            .await?;
+        }
+        group_ids.insert(name, g.id);
+    }
+
     for (order, group) in MENU.iter().enumerate() {
         let cat = menu::upsert_category(
             ctx,
@@ -180,8 +271,18 @@ pub async fn seed_demo_menu(ctx: &Ctx) -> AppResult<bool> {
         )
         .await?;
 
+        let wanted: Vec<String> = CATEGORY_GROUPS
+            .iter()
+            .find(|(c, _)| *c == group.name)
+            .map(|(_, gs)| {
+                gs.iter()
+                    .filter_map(|g| group_ids.get(g).cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+
         for (i, (name, price)) in group.items.iter().enumerate() {
-            menu::upsert_item(
+            let item = menu::upsert_item(
                 ctx,
                 ItemInput {
                     id: None,
@@ -197,6 +298,9 @@ pub async fn seed_demo_menu(ctx: &Ctx) -> AppResult<bool> {
                 },
             )
             .await?;
+            if !wanted.is_empty() {
+                menu::set_item_modifier_groups(ctx, item.id, wanted.clone()).await?;
+            }
         }
     }
     Ok(true)

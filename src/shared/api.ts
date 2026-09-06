@@ -77,6 +77,38 @@ export interface Item {
   sortOrder: number
   isActive: boolean
   variants: Variant[]
+  /** 這個品項要問哪幾組選項。群組本身在 MenuTree.modifierGroups 裡。 */
+  modifierGroupIds: string[]
+}
+
+/**
+ * 選項群組（甜度 / 冰塊 / 加購）。
+ *
+ * 分成群組而不是一堆平的選項，是因為「甜度」要必選一個、
+ * 「加購」可以選很多個也可以不選 —— 這個差別直接決定點餐畫面長什麼樣子。
+ */
+export interface ModifierGroup {
+  id: string
+  name: string
+  /** single = 單選（甜度）；multiple = 複選（加購）。 */
+  selectionType: 'single' | 'multiple'
+  /** 最少要選幾個。1 = 必選。 */
+  minSelect: number
+  maxSelect: number
+  sortOrder: number
+  options: Modifier[]
+}
+
+export interface Modifier {
+  id: string
+  groupId: string
+  name: string
+  /** 加價。0 = 免費選項（半糖、去冰）。 */
+  price: number
+  isDefault: boolean
+  soldOutUntil: string | null
+  sortOrder: number
+  isActive: boolean
 }
 
 export interface Category {
@@ -95,6 +127,8 @@ export interface MenuTree {
   categories: CategoryNode[]
   /** 沒有分類的品項。刻意單獨列出來 —— 藏起來的話老闆會以為商品不見了。 */
   uncategorized: Item[]
+  /** 店裡所有的選項群組，各一份。品項用 id 指過來。 */
+  modifierGroups: ModifierGroup[]
 }
 
 export interface CategoryInput {
@@ -147,6 +181,30 @@ export const menuApi = {
   upsertVariant: (input: VariantInput) =>
     transport.call<Variant>('upsert_variant', { input }),
   deleteVariant: (id: string) => transport.call<void>('delete_variant', { id }),
+
+  upsertModifierGroup: (input: {
+    id?: string | null
+    name: string
+    selectionType?: 'single' | 'multiple'
+    minSelect?: number
+    maxSelect?: number
+    sortOrder?: number
+  }) => transport.call<ModifierGroup>('upsert_modifier_group', { input }),
+  deleteModifierGroup: (id: string) =>
+    transport.call<void>('delete_modifier_group', { id }),
+  upsertModifier: (input: {
+    id?: string | null
+    groupId: string
+    name: string
+    price?: number
+    isDefault?: boolean
+    sortOrder?: number
+    isActive?: boolean
+  }) => transport.call<Modifier>('upsert_modifier', { input }),
+  deleteModifier: (id: string) => transport.call<void>('delete_modifier', { id }),
+  /** 這個品項要問哪幾組選項。整批送 —— 畫面上是一排勾選框。 */
+  setItemModifierGroups: (itemId: string, groupIds: string[]) =>
+    transport.call<void>('set_item_modifier_groups', { itemId, groupIds }),
 }
 
 // ---------------------------------------------------------------- 點餐與結帳

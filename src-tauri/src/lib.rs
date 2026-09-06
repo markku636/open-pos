@@ -229,6 +229,11 @@ pub fn run() {
             commands::reprint_receipt,
             commands::audit_query,
             commands::insight,
+            commands::upsert_modifier_group,
+            commands::delete_modifier_group,
+            commands::upsert_modifier,
+            commands::delete_modifier,
+            commands::set_item_modifier_groups,
             #[cfg(feature = "server")]
             commands::lan_status,
             commands::get_order,

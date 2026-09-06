@@ -503,3 +503,42 @@ pub async fn insight(
 pub async fn lan_status(ctx: State<'_, Ctx>) -> AppResult<services::network::LanStatus> {
     services::network::lan_status(&ctx, crate::lan::DEFAULT_PORT).await
 }
+
+// ---------------------------------------------------------------- 選項群組
+
+/// 建立或更新一組選項（甜度 / 冰塊 / 加購）。
+#[tauri::command]
+pub async fn upsert_modifier_group(
+    ctx: State<'_, Ctx>,
+    input: services::menu::ModifierGroupInput,
+) -> AppResult<services::menu::ModifierGroup> {
+    services::menu::upsert_modifier_group(&ctx, input).await
+}
+
+#[tauri::command]
+pub async fn delete_modifier_group(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::menu::delete_modifier_group(&ctx, id).await
+}
+
+#[tauri::command]
+pub async fn upsert_modifier(
+    ctx: State<'_, Ctx>,
+    input: services::menu::ModifierInput,
+) -> AppResult<services::menu::Modifier> {
+    services::menu::upsert_modifier(&ctx, input).await
+}
+
+#[tauri::command]
+pub async fn delete_modifier(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::menu::delete_modifier(&ctx, id).await
+}
+
+/// 這個品項要問哪幾組選項。
+#[tauri::command]
+pub async fn set_item_modifier_groups(
+    ctx: State<'_, Ctx>,
+    item_id: String,
+    group_ids: Vec<String>,
+) -> AppResult<()> {
+    services::menu::set_item_modifier_groups(&ctx, item_id, group_ids).await
+}

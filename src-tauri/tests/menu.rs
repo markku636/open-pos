@@ -282,3 +282,126 @@ async fn updating_a_missing_item_reports_not_found() {
     let err = menu::upsert_item(&e.ctx, ghost).await.unwrap_err();
     assert_eq!(err.code(), "ERR_NOT_FOUND");
 }
+
+/// ★ 選項群組：「珍奶半糖少冰加珍珠」要記得下來。
+///
+/// 單選群組只能有一個預設 —— 兩個預設的話點餐畫面不知道要勾哪一個。
+#[tokio::test]
+async fn a_single_choice_group_keeps_exactly_one_default() {
+    let e = env("mods").await;
+    let g = menu::upsert_modifier_group(
+        &e.ctx,
+        menu::ModifierGroupInput {
+            id: None,
+            name: "甜度".into(),
+            selection_type: Some("single".into()),
+            min_select: Some(1),
+            // 單選群組的 max_select 硬性是 1：讓它變成 3 會做出一個
+            // 「單選但可以選三個」的東西，而畫面沒有辦法呈現那種狀態。
+            max_select: Some(3),
+            sort_order: Some(0),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(g.max_select, 1, "單選群組的上限只能是 1");
+
+    for (name, default) in [("正常糖", true), ("半糖", false)] {
+        menu::upsert_modifier(
+            &e.ctx,
+            menu::ModifierInput {
+                id: None,
+                group_id: g.id.clone(),
+                name: name.into(),
+                price: Some(0),
+                is_default: Some(default),
+                sold_out_until: None,
+                sort_order: Some(0),
+                is_active: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    // 把「半糖」也設成預設，「正常糖」就要自動退位。
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    let half = tree.modifier_groups[0]
+        .options
+        .iter()
+        .find(|o| o.name == "半糖")
+        .unwrap()
+        .clone();
+    menu::upsert_modifier(
+        &e.ctx,
+        menu::ModifierInput {
+            id: Some(half.id.clone()),
+            group_id: g.id.clone(),
+            name: "半糖".into(),
+            price: Some(0),
+            is_default: Some(true),
+            sold_out_until: None,
+            sort_order: Some(0),
+            is_active: Some(true),
+        },
+    )
+    .await
+    .unwrap();
+
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    let defaults: Vec<&str> = tree.modifier_groups[0]
+        .options
+        .iter()
+        .filter(|o| o.is_default)
+        .map(|o| o.name.as_str())
+        .collect();
+    assert_eq!(defaults, vec!["半糖"], "單選群組只能有一個預設");
+}
+
+/// 群組要掛得到品項上，而且刪群組時掛勾要一起拆掉 ——
+/// 否則點餐時會找到一個已經刪掉的群組。
+#[tokio::test]
+async fn deleting_a_group_unhooks_it_from_items() {
+    let e = env("unhook").await;
+    let c = menu::upsert_category(&e.ctx, cat("飲料")).await.unwrap();
+    let it = menu::upsert_item(&e.ctx, item("珍珠奶茶", 60, Some(c.id)))
+        .await
+        .unwrap();
+    let g = menu::upsert_modifier_group(
+        &e.ctx,
+        menu::ModifierGroupInput {
+            id: None,
+            name: "加料".into(),
+            selection_type: Some("multiple".into()),
+            min_select: Some(0),
+            max_select: Some(0),
+            sort_order: Some(0),
+        },
+    )
+    .await
+    .unwrap();
+
+    menu::set_item_modifier_groups(&e.ctx, it.id.clone(), vec![g.id.clone()])
+        .await
+        .unwrap();
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    let hooked = tree.categories[0]
+        .items
+        .iter()
+        .find(|i| i.id == it.id)
+        .unwrap();
+    assert_eq!(hooked.modifier_group_ids, vec![g.id.clone()]);
+
+    menu::delete_modifier_group(&e.ctx, g.id).await.unwrap();
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    assert!(tree.modifier_groups.is_empty());
+    let unhooked = tree.categories[0]
+        .items
+        .iter()
+        .find(|i| i.id == it.id)
+        .unwrap();
+    assert!(
+        unhooked.modifier_group_ids.is_empty(),
+        "刪掉群組之後品項上不該還掛著它"
+    );
+}
