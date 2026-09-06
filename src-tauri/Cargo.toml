@@ -1,0 +1,128 @@
+[package]
+name = "open-pos"
+version = "0.1.0"
+description = "Open-source restaurant POS — offline-first, local-network, MIT"
+authors = ["open-pos contributors"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.82"
+# 本 crate 有多個 binary。明確指定 GUI 為預設主程式，否則 `tauri build` 會在多 binary
+# 之間挑錯（db-kit 曾誤把 CLI 打包成主程式，安裝後雙擊只閃一下就關）。
+default-run = "open-pos"
+
+[lib]
+name = "open_pos"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# 收銀機 GUI（Tauri 視窗 + 內建 LAN server）。
+[[bin]]
+name = "open-pos"
+path = "src/main.rs"
+required-features = ["gui"]
+
+# Headless server（無螢幕主機 / Docker / 只當 KDS 與掃碼點餐的後端）。
+# `--no-default-features --features server` 可編出完全不連 Tauri / WebKit 的精簡檔。
+[[bin]]
+name = "open-posd"
+path = "src/bin/open_posd.rs"
+required-features = ["server"]
+
+# 虛擬出單機：監聽 TCP 9100，把 ESC/POS 位元組流解回人類可讀輸出 / PNG。
+# 刻意與編碼器住同一個 crate、共用 escpos::constants —— 改指令時編譯器會逼你兩邊一起改。
+[[bin]]
+name = "fakeprinter"
+path = "src/bin/fakeprinter.rs"
+required-features = ["dev-tools"]
+
+[build-dependencies]
+# 只有 gui build 需要（見 build.rs 的 cfg gate）。headless build 不會去讀 tauri.conf.json / icons。
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# ---- Tauri（optional，藏在 gui feature 後）----
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+# 擋雙開的 UX 糖（把既有視窗喚到前景）。真正的機制是 fs4 檔案鎖 —— 這個外掛是 GUI-only，
+# headless binary 不受它保護，所以檔案鎖才是本體，見 guard.rs。
+tauri-plugin-single-instance = { version = "2", optional = true }
+
+# ---- LAN server（optional）----
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"], optional = true }
+tower-http = { version = "0.6", default-features = false, features = ["fs", "trace"], optional = true }
+tokio-stream = { version = "0.1", features = ["sync"], optional = true }
+local-ip-address = { version = "0.6", optional = true }
+
+# ---- 核心（GUI / headless / test 都要）----
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "sync", "net", "signal"] }
+# 只開 sqlite；postgres 藏在 feature 後（v2.0）。
+# tls：延續 db-kit 全案「rustls + ring、絕不碰 OpenSSL/aws-lc-sys」的硬性原則（Windows 免 NASM）。
+# v1 的 SQLite 用不到 TLS，但先寫上，避免日後加 PG 時有人隨手加 native-tls。
+sqlx = { version = "0.8", default-features = false, features = [
+  # macros 只為了 sqlx::migrate!（它不需要 DATABASE_URL）。
+  # 刻意不使用 query! / query_as! —— 那兩個需要編譯期連資料庫，
+  # 會讓「clone 下來就能 cargo test」這個開源第一印象破功。
+  "runtime-tokio", "sqlite", "migrate", "macros", "chrono", "json",
+  "tls-rustls-ring-native-roots",
+] }
+thiserror = "2"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+# 營業日換算需要真實時區（餐飲業營業到凌晨，換日點不是午夜）。
+# 純 Rust 內含 IANA tzdb，符合 no-C-dependency 原則。
+chrono-tz = "0.10"
+# ULID：前 48 bit 是毫秒時間戳 → 字典序 == 產生時序，插入 append-only（避開 UUIDv4 的 B-tree 頁分裂）；
+# 客戶端可產生（掃碼點餐要先產暫存 id）；猜不到（URL 安全）。
+ulid = { version = "1", features = ["serde"] }
+# 前端產生的冪等鍵是 UUIDv4，這裡只負責解析驗證。
+uuid = { version = "1", features = ["v4", "serde"] }
+once_cell = "1"
+parking_lot = "0.12"
+dirs = "6"
+clap = { version = "4", features = ["derive", "env"] }
+rand = "0.8"
+# 單實例檔案鎖。這是「單一 outbox / 列印佇列 / 發票配號 leader」這個不變量的唯一機制 ——
+# 不是 README 上的一行字。第二個實例拿不到鎖就直接拒絕啟動。
+fs4 = { version = "0.13", features = ["sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# 診斷包要附最近 N 天的 rolling log —— 地端 + 離線 + 非技術使用者，沒有 log 就無法重現任何 bug。
+tracing-appender = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# GetDriveType：偵測資料庫是否被放在網路磁碟上。
+# SQLite 官方明言 WAL 無法跨網路檔案系統（-shm 需要跨主機共享記憶體，SMB 給不了），
+# 結果是靜默資料損毀 —— 必須在開機時擋下來，而不是等它壞。
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[features]
+default = ["gui", "server"]
+
+# gui：Tauri 桌面程式。關掉即編不進任何 tauri / WebKit 相依。
+gui = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-single-instance"]
+custom-protocol = ["gui", "tauri/custom-protocol"]
+
+# server：LAN HTTP/SSE server（KDS、掃碼點餐）。GUI 版預設帶著它；
+# 也可 `--no-default-features --features server` 單獨編 headless binary。
+server = ["dep:axum", "dep:tower-http", "dep:tokio-stream", "dep:local-ip-address"]
+
+# postgres：第二個資料庫後端（v2.0）。v1 不開，貢獻者不必裝 PG 也能跑全部測試。
+postgres = ["sqlx/postgres"]
+
+# dev-tools：fakeprinter / faketurnkey。正式打包不含 —— 它們會 bind 對外埠，
+# 出現在使用者機器上是資安噪音。
+dev-tools = []
+
+[profile.release]
+# thin LTO：跨 CGU 最佳化但平行執行，連結期記憶體峰值遠低於 fat LTO（後者在本機有 OOM 前科）。
+lto = "thin"
+strip = "symbols"
+codegen-units = 16
+
+# dev build 跑 SQLite 整合測試會慢到不想跑，把相依開到 O2。
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,0 +1,14 @@
+# 一律以 LF 存進 repo。CI 跑在 Linux、開發機多半是 Windows，
+# 沒有這行的話 rustfmt --check 與 eslint 會因為行尾差異而在其中一邊紅掉。
+* text=auto eol=lf
+
+# 二進位檔不要碰
+*.png binary
+*.ico binary
+*.icns binary
+*.mp3 binary
+*.woff2 binary
+
+# 產生的檔案不計入語言統計 / diff 預設收合
+package-lock.json linguist-generated=true -diff
+src-tauri/Cargo.lock linguist-generated=true -diff

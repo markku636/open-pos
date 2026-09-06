@@ -1,0 +1,31 @@
+# Rust
+/src-tauri/target/
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri
+/src-tauri/gen/
+
+# 測試殘留（整合測試用暫存檔 SQLite，絕不用 :memory:）
+/src-tauri/pos_it_*.db*
+/src-tauri/tests/tmp/
+
+# 快照測試的待審核檔（cargo insta review 後才 commit .snap）
+*.snap.new
+*.pending-snap
+
+# 開發期產物
+/out/
+/release/
+*.log
+
+# 編輯器 / OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

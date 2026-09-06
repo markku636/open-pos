@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* POS 是長時間站著用的觸控介面：關掉行動瀏覽器的點兩下縮放與長按選字，
+   否則收銀員快速連點會誤觸縮放，客訴會變成「畫面自己變大」。 */
+html {
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+}

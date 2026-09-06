@@ -1,0 +1,80 @@
+name: CI
+
+# db-kit 只有 release.yml，沒有在 PR / push 上跑 test 與 clippy 的 workflow。
+# 那個習慣帶到一個處理現金與稅務的系統上會安靜地出事，所以 CI 從第一週就要有。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: fmt
+        run: cargo fmt --all --check
+
+      # headless build 不需要 WebKit / GTK，所以整個 job 不必裝任何系統相依。
+      # 這本身就是「把 tauri 藏在 gui feature 後」的驗收：
+      # 只要有人不小心讓 core / infra 依賴到 tauri，這一步就會紅。
+      - name: clippy（headless）
+        run: cargo clippy --no-default-features --features server --all-targets -- -D warnings
+
+      - name: test（含 SQLite 端到端，零外部相依）
+        run: cargo test --no-default-features --features server
+
+      - name: 驗證 headless binary 真的編得起來
+        run: cargo build --no-default-features --features server --bin open-posd
+
+  gui-build:
+    name: GUI build（Windows）
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 前端建置（tauri build 需要 dist/）
+        working-directory: .
+        run: npm ci && npm run build
+      - name: cargo check（含 gui feature）
+        run: cargo check --all-targets
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      # 沒有這道守門，顧客手機那包會在第三個月破功。
+      - run: npm run check:bundle
