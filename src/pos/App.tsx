@@ -3,10 +3,19 @@ import { useEffect, useState } from 'react'
 import AboutDialog from './AboutDialog'
 import MenuManager from './MenuManager'
 import OrderScreen from './OrderScreen'
-import { api, transport, type AppError, type AppInfo, type Health } from '@/shared/api'
+import PrinterSettings from './PrinterSettings'
+import {
+  api,
+  printerApi,
+  transport,
+  type AppError,
+  type AppInfo,
+  type Health,
+  type PrintQueueStatus,
+} from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'menu' | 'status'
+type Tab = 'order' | 'menu' | 'printer' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
@@ -18,8 +27,21 @@ export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [infoError, setInfoError] = useState<AppError | null>(null)
 
+  // 出單狀態。**每 5 秒重查一次，而且常駐在畫面上。**
+  // POS 最常見的客訴是「廚房沒收到單」，技術根因幾乎都是
+  // 「系統知道印失敗了，但沒有告訴任何人」。
+  const [queue, setQueue] = useState<PrintQueueStatus | null>(null)
+
   useEffect(() => {
     api.appInfo().then(setInfo).catch(setInfoError)
+  }, [])
+
+  useEffect(() => {
+    // 區網端沒有這個指令（設定類指令刻意不掛在區網上），查不到就不顯示。
+    const poll = () => printerApi.queueStatus().then(setQueue).catch(() => setQueue(null))
+    void poll()
+    const id = setInterval(poll, 5000)
+    return () => clearInterval(id)
   }, [])
 
   return (
@@ -33,10 +55,23 @@ export default function App() {
         <TabButton active={tab === 'menu'} onClick={() => setTab('menu')}>
           商品維護
         </TabButton>
+        <TabButton active={tab === 'printer'} onClick={() => setTab('printer')}>
+          出單機
+        </TabButton>
         <TabButton active={tab === 'status'} onClick={() => setTab('status')}>
           系統狀態
         </TabButton>
         <span className="ml-auto" />
+        {queue?.needsAttention && (
+          <button
+            className="mr-2 flex items-center gap-1.5 rounded bg-red-950/70 px-3 py-1.5 text-sm text-red-200 hover:bg-red-900/70"
+            title="點一下看出單狀況"
+            onClick={() => setTab('printer')}
+          >
+            <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" />
+            {queue.detail}
+          </button>
+        )}
         <button
           className="rounded px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200"
           onClick={() => setAbout(true)}
@@ -48,6 +83,7 @@ export default function App() {
       <main className="min-h-0 flex-1 overflow-hidden p-4">
         {tab === 'order' && <OrderScreen />}
         {tab === 'menu' && <MenuManager />}
+        {tab === 'printer' && <PrinterSettings />}
         {tab === 'status' && <StatusPanel info={info} error={infoError} />}
       </main>
 
@@ -129,7 +165,7 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
         */}
         <ul className="space-y-1 text-sm text-slate-400">
           <li>● 點餐、結帳、商品維護：可以用了</li>
-          <li>○ 出單機（ESC/POS）：開發中</li>
+          <li>● 出單機（ESC/POS 網路型）：可以用了</li>
           <li>○ 班別交接與日結、備份還原：規劃中</li>
         </ul>
       </section>

@@ -454,3 +454,70 @@ async fn the_customer_receipt_carries_the_numbers_that_must_match_the_invoice() 
 
     e.ctx.db.close().await;
 }
+
+/// 網路型（TCP 9100）那條路也要真的走過一次。
+///
+/// 檔案 driver 驗得了版面與編碼，但驗不到 socket 這一段 —— 而
+/// 「連得上卻送不出去」是真機上最常見的一種壞法。這裡起一個假的出單機，
+/// 收下位元組再用同一份解碼器解回文字。
+#[tokio::test]
+async fn bytes_really_travel_over_tcp_to_a_printer() {
+    let e = env("tcp").await;
+    demo::seed_demo_menu(&e.ctx).await.unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let (mut s, _) = listener.accept().await.unwrap();
+        let mut buf = Vec::new();
+        s.read_to_end(&mut buf).await.unwrap();
+        buf
+    });
+
+    printer::upsert_printer(
+        &e.ctx,
+        printer::PrinterInput {
+            id: None,
+            name: "網路出單機".into(),
+            transport: Transport::Network {
+                host: "127.0.0.1".into(),
+                port,
+            },
+            paper: PaperWidth::Mm80,
+            encoding: Some(CjkEncoding::Big5),
+            cutter: Some(true),
+            drawer: None,
+            status_query: None,
+            render_mode: Some("text".into()),
+            is_active: Some(true),
+        },
+    )
+    .await
+    .unwrap();
+
+    e.add_one("珍珠奶茶").await;
+    let report = print_worker::tick(&e.ctx).await.unwrap();
+    assert_eq!(report.printed, 1, "{report:?}");
+
+    let bytes = server.await.unwrap();
+    assert!(!bytes.is_empty(), "什麼都沒收到");
+    let ops = decode::decode(&bytes, CjkEncoding::Big5);
+    assert!(
+        !ops.iter().any(|o| matches!(o, decode::Op::Unknown(_))),
+        "真的送出去的位元組有解不出來的段落：{ops:?}"
+    );
+    let text = decode::render_human(&ops);
+    assert!(
+        text.contains("珍珠奶茶"),
+        "
+{text}"
+    );
+    assert!(
+        text.contains("切紙"),
+        "
+{text}"
+    );
+
+    e.ctx.db.close().await;
+}

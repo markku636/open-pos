@@ -242,3 +242,138 @@ export const orderApi = {
     }),
   paymentMethods: () => transport.call<PaymentMethod[]>('payment_methods'),
 }
+
+// ---------------------------------------------------------------- 出單機
+
+/**
+ * 傳輸方式。後端的 serde tag 是 `kind`（見 infra::printer::Transport）。
+ *
+ * v1 只實作網路型與檔案；USB 與藍牙的形狀先留著，之後補實作時
+ * 前端不必再動一次型別。
+ */
+export type Transport =
+  | { kind: 'network'; host: string; port: number }
+  | { kind: 'file'; path: string; append: boolean }
+  | { kind: 'usb'; vid: number; pid: number; serial?: string | null }
+  | { kind: 'bluetooth'; addr: string; channel: number }
+
+export type PaperWidth = 'mm58' | 'mm80'
+export type CjkEncoding = 'big5' | 'gb18030' | 'utf8'
+
+export interface PrinterCaps {
+  paper: PaperWidth
+  raster: boolean
+  cutter: boolean
+  drawer: boolean
+  statusQuery: boolean
+  encoding: CjkEncoding
+}
+
+export interface Printer {
+  id: string
+  name: string
+  transport: Transport
+  caps: PrinterCaps
+  renderMode: 'raster' | 'text'
+  isActive: boolean
+  lastProbeAt?: string | null
+  lastProbeOk?: boolean | null
+  lastError?: string | null
+}
+
+export interface PrinterInput {
+  id?: string | null
+  name: string
+  transport: Transport
+  paper: PaperWidth
+  encoding?: CjkEncoding
+  cutter?: boolean
+  drawer?: boolean
+  statusQuery?: boolean
+  renderMode?: 'raster' | 'text'
+  isActive?: boolean
+}
+
+export interface ProbeResult {
+  ok: boolean
+  detail: string
+}
+
+export type BindingMode = 'failover' | 'always'
+
+export interface StationPrinter {
+  printerId: string
+  priority: number
+  mode: BindingMode
+}
+
+export interface Station {
+  id: string
+  name: string
+  template: 'kitchen' | 'drink' | 'receipt' | 'label'
+  splitPerItem: boolean
+  sortOrder: number
+  isActive: boolean
+  printers: StationPrinter[]
+}
+
+export interface StationInput {
+  id?: string | null
+  name: string
+  template?: Station['template']
+  splitPerItem?: boolean
+  sortOrder?: number
+  isActive?: boolean
+  /** 省略 = 不動綁定；給了 = 整組取代。 */
+  printers?: StationPrinter[]
+}
+
+export interface PrintJob {
+  id: string
+  printerId: string
+  printerName: string
+  stationName?: string | null
+  orderId?: string | null
+  docType: string
+  reason: string
+  status: 'pending' | 'printing' | 'done' | 'failed' | 'dead' | 'cancelled'
+  attempts: number
+  lastError?: string | null
+  /** transient（網路斷）/ needs_attention（缺紙）/ permanent（設定錯）。 */
+  lastErrorClass?: 'transient' | 'needs_attention' | 'permanent' | null
+  createdAt: string
+  doneAt?: string | null
+}
+
+export interface PrintQueueStatus {
+  pending: number
+  dead: number
+  /** 有意圖但展不開（通常是還沒設定任何印表機）。 */
+  unrouted: number
+  needsAttention: boolean
+  detail: string
+}
+
+/**
+ * 出單機相關的指令**只存在於 Tauri 這一側**。
+ *
+ * 區網那邊的呼叫者是顧客手機與廚房平板：就算區網服務有漏洞，
+ * 攻擊面也只到「亂送單」，到不了「改設定」或「看失敗的單」。
+ * 所以在瀏覽器裡開這一頁會拿到 404，那是刻意的。
+ */
+export const printerApi = {
+  list: () => transport.call<Printer[]>('list_printers'),
+  upsert: (input: PrinterInput) => transport.call<Printer>('upsert_printer', { input }),
+  remove: (id: string) => transport.call<void>('delete_printer', { id }),
+  probe: (id: string) => transport.call<ProbeResult>('probe_printer', { id }),
+  testPrint: (id: string) => transport.call<void>('test_print', { id }),
+
+  stations: () => transport.call<Station[]>('list_stations'),
+  upsertStation: (input: StationInput) => transport.call<Station>('upsert_station', { input }),
+  removeStation: (id: string) => transport.call<void>('delete_station', { id }),
+
+  queueStatus: () => transport.call<PrintQueueStatus>('print_queue_status'),
+  jobs: (limit?: number) => transport.call<PrintJob[]>('list_print_jobs', { limit: limit ?? 50 }),
+  retryJob: (id: string) => transport.call<void>('retry_print_job', { id }),
+  cancelJob: (id: string) => transport.call<void>('cancel_print_job', { id }),
+}
