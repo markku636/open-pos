@@ -822,3 +822,52 @@ export const refundApi = {
 export const reprintApi = {
   receipt: (billId: string) => transport.call<void>('reprint_receipt', { billId }),
 }
+
+// ---------------------------------------------------------------- 稽核
+
+export interface AuditRow {
+  id: string
+  at: string
+  businessDate: string | null
+  actorName: string | null
+  action: string
+  actionLabel: string
+  entityType: string
+  entityId: string
+  /** 人看得懂的對象（單號、帳單號）。 */
+  label: string | null
+  amountDelta: number | null
+  reasonName: string | null
+  /** 誰簽的核。有值代表這是一個需要授權的動作。 */
+  approvedByName: string | null
+}
+
+export interface AuditGroup {
+  key: string
+  label: string
+  count: number
+  amount: number
+}
+
+export interface AuditReport {
+  from: string
+  to: string
+  rows: AuditRow[]
+  totalAmount: number
+  byAction: AuditGroup[]
+  byActor: AuditGroup[]
+  truncated: boolean
+}
+
+export interface AuditQuery {
+  from?: string | null
+  to?: string | null
+  action?: string | null
+  actorId?: string | null
+  /** 只看動到錢的。**這是最常按的一個開關。** */
+  moneyOnly?: boolean
+}
+
+export const auditApi = {
+  query: (query: AuditQuery) => transport.call<AuditReport>('audit_query', { query }),
+}

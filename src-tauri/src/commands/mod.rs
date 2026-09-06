@@ -464,3 +464,12 @@ pub async fn list_reasons(
 pub async fn reprint_receipt(ctx: State<'_, Ctx>, bill_id: String) -> AppResult<()> {
     services::printer::reprint_receipt(&ctx, bill_id).await
 }
+
+/// 稽核查詢。需要 `report.audit`。
+#[tauri::command]
+pub async fn audit_query(
+    ctx: State<'_, Ctx>,
+    query: services::audit::AuditQuery,
+) -> AppResult<services::audit::AuditReport> {
+    services::audit::query(&ctx, query).await
+}

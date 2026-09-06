@@ -615,7 +615,7 @@ pub async fn apply_discount(ctx: &Ctx, req: DiscountReq) -> AppResult<OrderView>
     .await?;
 
     // 折扣是動到錢的操作，稽核一定要留，而且要留「差了多少」。
-    let mut entry = AuditEntry::new("order", &req.order_id, AuditAction::Discount)
+    let mut entry = AuditEntry::new("Order", &req.order_id, AuditAction::Discount)
         .amount(totals.grand_total.0 - before)
         .on(&head.business_date);
     if let Some(r) = &req.reason_id {
@@ -780,7 +780,7 @@ pub async fn void_order(ctx: &Ctx, req: VoidOrderReq) -> AppResult<OrderView> {
     } else {
         AuditAction::Void
     };
-    let mut entry = AuditEntry::new("order", &req.order_id, action)
+    let mut entry = AuditEntry::new("Order", &req.order_id, action)
         // 金額用負的：作廢是把已經計入的錢拿掉。
         .amount(-head.grand_total)
         .on(&head.business_date);

@@ -734,6 +734,83 @@ async fn each_split_part_reprints_its_own_receipt() {
     e.ctx.db.close().await;
 }
 
+/// ★ 稽核查詢是這整套防弊設計的出口。
+///
+/// `audit_logs` 從第一天就在寫，但一份沒有人讀得到的紀錄，防弊效果等於零。
+#[tokio::test]
+async fn the_audit_report_adds_up_what_left_the_till() {
+    let e = env("audit").await;
+    let a = e.settled_bill(&["珍珠奶茶"], "cash").await;
+    let b = e.settled_bill(&["滷肉飯"], "cash").await;
+    let reason = e.reason("quality").await;
+    e_refund(&e, &a.id, 20, &reason).await.unwrap();
+    e_refund(&e, &b.id, 5, &reason).await.unwrap();
+    // 補印沒有金額，不該混進「動到錢」的統計裡。
+    open_pos::services::printer::reprint_receipt(&e.ctx, a.id.clone())
+        .await
+        .unwrap();
+
+    let money = open_pos::services::audit::query(
+        &e.ctx,
+        open_pos::services::audit::AuditQuery {
+            money_only: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(money.total_amount, -25, "兩筆退款加起來");
+    assert!(
+        money.rows.iter().all(|r| r.action == "refund"),
+        "補印不該出現在「只看動到錢的」裡"
+    );
+    let refunds = money
+        .by_action
+        .iter()
+        .find(|g| g.key == "refund")
+        .expect("依動作要有退款那一組");
+    assert_eq!(refunds.count, 2);
+    assert_eq!(refunds.amount, -25);
+    assert_eq!(refunds.label, "退款", "代碼要翻成人看得懂的字");
+
+    // 誰批准的要跟金額記在同一列。
+    assert!(
+        money.rows.iter().all(|r| r.approved_by_name.is_some()),
+        "退款一定有簽核人"
+    );
+    // 對象要是看得懂的單號，不是一串 ULID。
+    assert!(money
+        .rows
+        .iter()
+        .any(|r| r.label.as_deref() == Some(&a.bill_no)));
+
+    let all =
+        open_pos::services::audit::query(&e.ctx, open_pos::services::audit::AuditQuery::default())
+            .await
+            .unwrap();
+    assert!(
+        all.by_action.iter().any(|g| g.key == "reprint"),
+        "不篩選的時候補印要看得到"
+    );
+
+    e.ctx.db.close().await;
+}
+
+/// 稽核紀錄要有權限才看得到 —— 它是「誰動了錢」的清單。
+#[tokio::test]
+async fn a_cashier_cannot_read_the_audit_log() {
+    let e = env("auditperm").await;
+    let cashier = e.cashier().await;
+    let err = open_pos::services::audit::query(
+        &e.as_actor(cashier),
+        open_pos::services::audit::AuditQuery::default(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code(), "ERR_FORBIDDEN");
+    e.ctx.db.close().await;
+}
+
 async fn e_refund(
     e: &Env,
     bill_id: &str,

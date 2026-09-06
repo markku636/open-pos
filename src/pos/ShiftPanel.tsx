@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import AuditPanel from './AuditPanel'
 import {
   reportApi,
   shiftApi,
@@ -24,7 +25,15 @@ const DENOMINATIONS = [1000, 500, 200, 100, 50, 10, 5, 1]
  * 這不是防呆，是防弊。先把應有金額顯示出來，短少的人會直接照抄 ——
  * 而那正是「現金差異永遠是零」的原因：不是沒有問題，是看不到問題。
  */
+/**
+ * 班別日結，以及**稽核紀錄**。
+ *
+ * 兩者放在同一個分頁下，是因為看的是同一個人（老闆或店長）在問同一類問題：
+ * 「今天收了多少、對不對得起來、有沒有人動了不該動的錢」。
+ */
 export default function ShiftPanel() {
+  const [view, setView] = useState<'shift' | 'audit'>('shift')
+
   const [status, setStatus] = useState<DayStatus | null>(null)
   const [counts, setCounts] = useState<Record<number, string>>({})
   const [openingFloat, setOpeningFloat] = useState('1000')
@@ -68,8 +77,21 @@ export default function ShiftPanel() {
   const shift = status?.shift ?? null
   const dayClosed = status?.status === 'closed' || status?.status === 'locked'
 
+  if (view === 'audit') {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <SubTabs view={view} onView={setView} />
+        <div className="min-h-0 flex-1">
+          <AuditPanel />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-full space-y-6 overflow-y-auto pr-2">
+      <SubTabs view={view} onView={setView} />
+
       {error && (
         <p className="whitespace-pre-line rounded border border-red-800 bg-red-950/60 px-3 py-2 text-sm text-red-200">
           {error}
@@ -317,6 +339,35 @@ export default function ShiftPanel() {
           </p>
         </section>
       )}
+    </div>
+  )
+}
+
+function SubTabs({
+  view,
+  onView,
+}: {
+  view: 'shift' | 'audit'
+  onView: (v: 'shift' | 'audit') => void
+}) {
+  return (
+    <div className="mb-3 flex gap-1">
+      {(
+        [
+          ['shift', '班別與日結'],
+          ['audit', '稽核紀錄'],
+        ] as const
+      ).map(([k, label]) => (
+        <button
+          key={k}
+          className={`rounded px-3 py-1.5 text-sm ${
+            view === k ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+          }`}
+          onClick={() => onView(k)}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   )
 }

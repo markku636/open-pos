@@ -15,7 +15,9 @@
 //! 「這個月誰總共免掉了多少錢」一個 SUM 就查得出來。防弊的價值全在統計上 ——
 //! 單看一筆折扣永遠是合理的，看一整個月的分布才看得出問題。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use sqlx::Row;
 
 use crate::core::clock::Stamp;
 use crate::core::ids::Id;
@@ -243,5 +245,221 @@ mod tests {
         // 這些字串會進資料庫並被報表 GROUP BY，改動等同於破壞歷史資料。
         assert_eq!(AuditAction::VoidAfterSettle.as_str(), "void_after_settle");
         assert_eq!(AuditAction::PriceOverride.as_str(), "price_override");
+    }
+}
+
+// ---------------------------------------------------------------- 查詢
+
+/// 查稽核紀錄的條件。
+///
+/// 全部可選，因為使用者查的問題形狀不固定：
+/// 「這個月的免單」「小美今天做了什麼」「上禮拜三為什麼少 800」。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditQuery {
+    /// 營業日起（含）。省略＝今天。
+    pub from: Option<String>,
+    /// 營業日迄（含）。省略＝跟 from 一樣。
+    pub to: Option<String>,
+    /// 只看某一種動作。
+    pub action: Option<String>,
+    /// 只看某個人做的。
+    pub actor_id: Option<String>,
+    /// 只看動到錢的。**這是最常按的一個開關** ——
+    /// 「誰改了什麼設定」跟「誰免掉了多少錢」不是同一個問題。
+    #[serde(default)]
+    pub money_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditRow {
+    pub id: String,
+    pub at: String,
+    pub business_date: Option<String>,
+    pub actor_name: Option<String>,
+    pub action: String,
+    pub action_label: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    /// 人看得懂的對象（單號、帳單號、品名）。
+    pub label: Option<String>,
+    pub amount_delta: Option<i64>,
+    pub reason_name: Option<String>,
+    /// 誰簽的核。有值代表這是一個需要授權的動作。
+    pub approved_by_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditGroup {
+    pub key: String,
+    pub label: String,
+    pub count: i64,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditReport {
+    pub from: String,
+    pub to: String,
+    pub rows: Vec<AuditRow>,
+    /// 這段期間動到的錢總共多少（負數＝從店裡出去的）。
+    pub total_amount: i64,
+    /// 依動作分組。**看一整段時間的分布才看得出問題** ——
+    /// 單看一筆折扣永遠是合理的。
+    pub by_action: Vec<AuditGroup>,
+    /// 依操作者分組。
+    pub by_actor: Vec<AuditGroup>,
+    /// 超過上限時為 true，畫面上要說「還有更多」而不是假裝就這些。
+    pub truncated: bool,
+}
+
+/// 一次最多回幾筆。太多筆的畫面沒有人會捲完，而分組統計已經回答了大問題。
+const MAX_ROWS: i64 = 500;
+
+pub async fn query(ctx: &crate::ctx::Ctx, q: AuditQuery) -> AppResult<AuditReport> {
+    crate::services::rbac::require(&ctx.db, &ctx.actor, "report.audit").await?;
+    let now = Stamp::now();
+    let from = match q.from.clone() {
+        Some(d) => d,
+        None => crate::services::shift::today(ctx, &now).await?,
+    };
+    let to = q.to.clone().unwrap_or_else(|| from.clone());
+
+    let mut sql = String::from(
+        "SELECT a.id, a.created_at, a.business_date, a.actor_name, a.action, a.entity_type,
+                a.entity_id, a.new_value, a.amount_delta, r.name AS reason_name,
+                u.name AS approver_name
+           FROM audit_logs a
+           LEFT JOIN reason_codes r ON r.id = a.reason_id
+           LEFT JOIN users u ON u.id = a.approved_by
+          WHERE a.business_date >= ?1 AND a.business_date <= ?2",
+    );
+    if q.action.is_some() {
+        sql.push_str(" AND a.action = ?3");
+    }
+    if q.actor_id.is_some() {
+        sql.push_str(" AND a.actor_id = ?4");
+    }
+    if q.money_only {
+        sql.push_str(" AND a.amount_delta IS NOT NULL AND a.amount_delta <> 0");
+    }
+    sql.push_str(" ORDER BY a.created_at DESC LIMIT ?5");
+
+    let rows = sqlx::query(&sql)
+        .bind(&from)
+        .bind(&to)
+        .bind(&q.action)
+        .bind(&q.actor_id)
+        .bind(MAX_ROWS + 1)
+        .fetch_all(ctx.db.reader())
+        .await?;
+
+    let truncated = rows.len() as i64 > MAX_ROWS;
+    let mut out = Vec::with_capacity(rows.len().min(MAX_ROWS as usize));
+    for r in rows.iter().take(MAX_ROWS as usize) {
+        let action: String = r.get("action");
+        out.push(AuditRow {
+            id: r.get("id"),
+            at: r.get("created_at"),
+            business_date: r.get("business_date"),
+            actor_name: r.get("actor_name"),
+            action_label: action_label(&action).to_string(),
+            action,
+            entity_type: r.get("entity_type"),
+            entity_id: r.get("entity_id"),
+            // new_value 是 JSON 字串（多半就是一個單號）。剝掉引號讓它像人話。
+            label: r
+                .get::<Option<String>, _>("new_value")
+                .map(|v| v.trim_matches('"').to_string()),
+            amount_delta: r.get("amount_delta"),
+            reason_name: r.get("reason_name"),
+            approved_by_name: r.get("approver_name"),
+        });
+    }
+
+    // 分組統計走另一支查詢，**不是拿上面那 500 筆算的** ——
+    // 一份「只統計到前 500 筆」的防弊報表比沒有更糟，因為它看起來是完整的。
+    let by_action = group_by(ctx, "a.action", &from, &to, &q).await?;
+    let by_actor = group_by(ctx, "COALESCE(a.actor_name, a.actor_code)", &from, &to, &q).await?;
+    let total_amount = by_action.iter().map(|g| g.amount).sum();
+
+    Ok(AuditReport {
+        from,
+        to,
+        rows: out,
+        total_amount,
+        by_action,
+        by_actor,
+        truncated,
+    })
+}
+
+async fn group_by(
+    ctx: &crate::ctx::Ctx,
+    expr: &str,
+    from: &str,
+    to: &str,
+    q: &AuditQuery,
+) -> AppResult<Vec<AuditGroup>> {
+    let mut sql = format!(
+        "SELECT {expr} AS k, COUNT(*) AS n, COALESCE(SUM(a.amount_delta), 0) AS amount
+           FROM audit_logs a
+          WHERE a.business_date >= ?1 AND a.business_date <= ?2"
+    );
+    if q.action.is_some() {
+        sql.push_str(" AND a.action = ?3");
+    }
+    if q.actor_id.is_some() {
+        sql.push_str(" AND a.actor_id = ?4");
+    }
+    if q.money_only {
+        sql.push_str(" AND a.amount_delta IS NOT NULL AND a.amount_delta <> 0");
+    }
+    sql.push_str(&format!(" GROUP BY {expr} ORDER BY amount ASC, n DESC"));
+
+    let rows = sqlx::query(&sql)
+        .bind(from)
+        .bind(to)
+        .bind(&q.action)
+        .bind(&q.actor_id)
+        .fetch_all(ctx.db.reader())
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let key: Option<String> = r.get("k");
+            let key = key.unwrap_or_else(|| "—".into());
+            AuditGroup {
+                label: action_label(&key).to_string(),
+                key,
+                count: r.get("n"),
+                amount: r.get("amount"),
+            }
+        })
+        .collect())
+}
+
+/// 動作代碼的中文。認不得的就原樣回去 —— 顯示 `foo` 比顯示「其他」有用。
+fn action_label(code: &str) -> &str {
+    match code {
+        "create" => "建立",
+        "update" => "修改",
+        "delete" => "刪除",
+        "void" => "作廢",
+        "void_after_settle" => "結帳後作廢",
+        "discount" => "折扣",
+        "comp" => "招待",
+        "price_override" => "改價",
+        "refund" => "退款",
+        "reprint" => "補印",
+        "drawer_open" => "開錢箱",
+        "shift_open" => "開班",
+        "shift_close" => "關班",
+        "settings_change" => "改設定",
+        "restore" => "還原備份",
+        other => other,
     }
 }

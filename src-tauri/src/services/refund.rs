@@ -358,6 +358,8 @@ pub async fn refund(ctx: &Ctx, req: RefundReq) -> AppResult<RefundResult> {
         .to(&bill_no)
         // 稽核看的是「動了多少錢」，退款是負的。
         .amount(-req.amount)
+        // 誰批准的要跟金額記在同一列 —— 「這筆錢是誰放行的」是同一個問題。
+        .approved_by(&authorized.user_id)
         .on(&today);
     if let Some(r) = &req.reason_id {
         entry = entry.reason(r);
