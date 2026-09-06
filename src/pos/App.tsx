@@ -1,29 +1,37 @@
 import { useEffect, useState } from 'react'
 
 import MenuManager from './MenuManager'
+import OrderScreen from './OrderScreen'
 import { api, transport, type AppError, type AppInfo, type Health } from '@/shared/api'
 
-type Tab = 'menu' | 'status'
+type Tab = 'order' | 'menu' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
-  const [tab, setTab] = useState<Tab>('menu')
+  const [tab, setTab] = useState<Tab>('order')
 
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
       <header className="flex shrink-0 items-center gap-1 border-b border-slate-800 px-4 py-2">
         <span className="mr-4 font-semibold">open-pos</span>
+        <TabButton active={tab === 'order'} onClick={() => setTab('order')}>
+          點餐
+        </TabButton>
         <TabButton active={tab === 'menu'} onClick={() => setTab('menu')}>
           商品維護
         </TabButton>
         <TabButton active={tab === 'status'} onClick={() => setTab('status')}>
           系統狀態
         </TabButton>
-        <span className="ml-auto text-xs text-slate-600">點餐與結帳畫面在 M4</span>
+        <span className="ml-auto text-xs text-slate-600">
+          出單機在 M5、班別日結在 M6
+        </span>
       </header>
 
       <main className="min-h-0 flex-1 overflow-hidden p-4">
-        {tab === 'menu' ? <MenuManager /> : <StatusPanel />}
+        {tab === 'order' && <OrderScreen />}
+        {tab === 'menu' && <MenuManager />}
+        {tab === 'status' && <StatusPanel />}
       </main>
     </div>
   )

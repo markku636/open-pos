@@ -137,3 +137,97 @@ export const menuApi = {
     transport.call<Variant>('upsert_variant', { input }),
   deleteVariant: (id: string) => transport.call<void>('delete_variant', { id }),
 }
+
+// ---------------------------------------------------------------- 點餐與結帳
+
+export type Channel = 'dine_in' | 'takeout' | 'delivery'
+
+export interface OrderLine {
+  id: string
+  lineNo: number
+  name: string
+  variantName: string | null
+  options: string[]
+  note: string | null
+  /** 數量 × 1000。半份是 500。 */
+  qtyMilli: number
+  unitPrice: number
+  amount: number
+}
+
+export interface Order {
+  id: string
+  orderNo: string
+  status: 'draft' | 'placed' | 'in_progress' | 'ready' | 'served' | 'settled' | 'voided'
+  /** 樂觀鎖版本。寫入時必須帶回去，不符會回 409。 */
+  rev: number
+  channel: Channel
+  tableId: string | null
+  tableLabel: string | null
+  guestCount: number
+  businessDate: string
+  lines: OrderLine[]
+  subtotal: number
+  serviceCharge: number
+  roundingAdjustment: number
+  grandTotal: number
+  salesAmount: number
+  taxAmount: number
+  paidTotal: number
+  changeTotal: number
+}
+
+export interface SettleResult {
+  order: Order
+  billNo: string
+  change: number
+}
+
+export interface PaymentMethod {
+  code: string
+  name: string
+  kind: string
+  /** 只有現金這類方式能找零。刷卡「找零」是不存在的東西。 */
+  allowsChange: boolean
+  opensDrawer: boolean
+}
+
+export interface NewLine {
+  itemId: string
+  variantId?: string | null
+  qtyMilli?: number
+  modifierIds?: string[]
+  note?: string | null
+}
+
+export interface PaymentInput {
+  methodCode: string
+  /** 這一筆要沖銷帳單多少。 */
+  amount: number
+  /** 客人實際遞出來的錢。只有現金會與 amount 不同。 */
+  tendered?: number | null
+  refNo?: string | null
+}
+
+/** 前端產生的冪等鍵。Wi-Fi 抖動時重送不會重複收款。 */
+export function newIdemKey(): string {
+  return crypto.randomUUID()
+}
+
+export const orderApi = {
+  open: (channel: Channel, tableId?: string | null, guestCount?: number) =>
+    transport.call<Order>('open_order', {
+      req: { channel, tableId: tableId ?? null, guestCount: guestCount ?? 1, clientId: newIdemKey() },
+    }),
+  get: (id: string) => transport.call<Order>('get_order', { id }),
+  listOpen: () => transport.call<Order[]>('list_open_orders'),
+  addLines: (orderId: string, expectedRev: number, lines: NewLine[]) =>
+    transport.call<Order>('add_lines', { req: { orderId, expectedRev, lines } }),
+  voidLine: (orderId: string, expectedRev: number, lineId: string) =>
+    transport.call<Order>('void_line', { orderId, expectedRev, lineId, reasonId: null }),
+  settle: (orderId: string, expectedRev: number, payments: PaymentInput[]) =>
+    transport.call<SettleResult>('settle', {
+      req: { orderId, expectedRev, payments, idemKey: newIdemKey() },
+    }),
+  paymentMethods: () => transport.call<PaymentMethod[]>('payment_methods'),
+}

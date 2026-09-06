@@ -45,8 +45,12 @@ pub fn build_with_ui(ctx: Ctx, ui_dir: Option<std::path::PathBuf>) -> Router {
 
     match ui_dir {
         Some(dir) if dir.is_dir() => {
-            tracing::info!(dir = %dir.display(), "提供靜態頁面");
-            api.fallback_service(tower_http::services::ServeDir::new(dir))
+            tracing::info!(dir = %dir.display(), "提供靜態頁面（僅 KDS 與掃碼點餐）");
+            let files = tower_http::services::ServeDir::new(dir);
+            api.fallback_service(tower::service_fn(move |req| {
+                let files = files.clone();
+                async move { serve_public_page(files, req).await }
+            }))
         }
         Some(dir) => {
             // 不要安靜地略過 —— 使用者指定了目錄卻沒生效，最後只會看到 404 而不知原因。
@@ -54,6 +58,52 @@ pub fn build_with_ui(ctx: Ctx, ui_dir: Option<std::path::PathBuf>) -> Router {
             api
         }
         None => api,
+    }
+}
+
+/// 這個路徑可以從區網拿到嗎。
+///
+/// ★ **收銀機那一頁（index.html）刻意不在名單裡。**
+///
+/// 它是給 Tauri 視窗載入的，走 IPC；從瀏覽器開它，每個寫入動作都會撞上
+/// 「這個指令不在區網端點上」而變成一條死路。更重要的是，任何連上店內
+/// Wi-Fi 的人都不該能載入收銀介面 —— 那等於把整個後台的畫面與 API 形狀
+/// 攤開給客人看。
+///
+/// 連它的 JS chunk（`assets/index-*.js`）也一起擋掉，否則猜檔名還是拿得到。
+fn is_public_path(path: &str) -> bool {
+    let p = path.trim_start_matches('/');
+    match p {
+        "kds.html" | "order.html" => true,
+        _ if p.starts_with("assets/") => {
+            // Vite 的 chunk 檔名是 `<entry>-<hash>.js`，收銀機那一支叫 index-*。
+            let file = p.trim_start_matches("assets/");
+            !file.starts_with("index-")
+        }
+        // 根路徑導到掃碼點餐頁：客人掃 QR 掃到的就是它。
+        "" => false,
+        _ => false,
+    }
+}
+
+#[cfg(feature = "server")]
+async fn serve_public_page(
+    files: tower_http::services::ServeDir,
+    req: axum::http::Request<axum::body::Body>,
+) -> Result<axum::response::Response, std::convert::Infallible> {
+    use tower::ServiceExt;
+
+    if !is_public_path(req.uri().path()) {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            "這個頁面只能在收銀機上開啟。
+平板請開 /kds.html，顧客手機請掃桌上的 QR。",
+        )
+            .into_response());
+    }
+    match files.oneshot(req).await {
+        Ok(res) => Ok(res.map(axum::body::Body::new)),
+        Err(_) => Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
     }
 }
 

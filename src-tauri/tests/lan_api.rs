@@ -180,3 +180,58 @@ async fn health_reports_database_ok_but_flags_missing_backup() {
     c.db.close().await;
     let _ = std::fs::remove_dir_all(&layout.root);
 }
+
+/// ★ 收銀機那一頁不該從區網拿得到。
+///
+/// 它是給 Tauri 視窗載入的；從瀏覽器開它每個寫入都會撞上「指令不在區網端點上」，
+/// 是一條死路。更重要的是，任何連上店內 Wi-Fi 的人都不該能載入收銀介面。
+#[tokio::test]
+async fn the_cashier_page_is_not_reachable_from_the_lan() {
+    let (layout, c) = ctx("pages").await;
+    let dist = layout.root.join("dist");
+    std::fs::create_dir_all(dist.join("assets")).unwrap();
+    for (name, body) in [
+        ("index.html", "cashier"),
+        ("kds.html", "kds"),
+        ("order.html", "order"),
+    ] {
+        std::fs::write(dist.join(name), body).unwrap();
+    }
+    std::fs::write(dist.join("assets/index-abc.js"), "cashier bundle").unwrap();
+    std::fs::write(dist.join("assets/kds-abc.js"), "kds bundle").unwrap();
+
+    let cases = [
+        ("/kds.html", StatusCode::OK),
+        ("/order.html", StatusCode::OK),
+        ("/assets/kds-abc.js", StatusCode::OK),
+        ("/index.html", StatusCode::NOT_FOUND),
+        // 連 chunk 也要擋，否則猜檔名還是拿得到收銀機的程式碼。
+        ("/assets/index-abc.js", StatusCode::NOT_FOUND),
+        ("/", StatusCode::NOT_FOUND),
+    ];
+
+    for (path, want) in cases {
+        let app = open_pos::lan::router::build_with_ui(c.clone(), Some(dist.clone()));
+        let res = app
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), want, "{path} 的狀態碼不對");
+    }
+
+    // API 不受影響。
+    let app = open_pos::lan::router::build_with_ui(c.clone(), Some(dist));
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(res.status(), StatusCode::NOT_FOUND);
+
+    c.db.close().await;
+    let _ = std::fs::remove_dir_all(&layout.root);
+}

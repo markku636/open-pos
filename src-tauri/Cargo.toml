@@ -48,6 +48,7 @@ tauri-plugin-single-instance = { version = "2", optional = true }
 
 # ---- LAN server（optional）----
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"], optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
 tower-http = { version = "0.6", default-features = false, features = ["fs", "trace"], optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 local-ip-address = { version = "0.6", optional = true }
@@ -121,7 +122,7 @@ custom-protocol = ["gui", "tauri/custom-protocol"]
 
 # server：LAN HTTP/SSE server（KDS、掃碼點餐）。GUI 版預設帶著它；
 # 也可 `--no-default-features --features server` 單獨編 headless binary。
-server = ["dep:axum", "dep:tower-http", "dep:tokio-stream", "dep:local-ip-address"]
+server = ["dep:axum", "dep:tower", "dep:tower-http", "dep:tokio-stream", "dep:local-ip-address"]
 
 # postgres：第二個資料庫後端（v2.0）。v1 不開，貢獻者不必裝 PG 也能跑全部測試。
 postgres = ["sqlx/postgres"]
