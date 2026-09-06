@@ -458,3 +458,9 @@ pub async fn list_reasons(
 ) -> AppResult<Vec<services::reason::ReasonCode>> {
     services::reason::list_reasons(&ctx, kind).await
 }
+
+/// 補印收據。重送的是當初那一張的快照，並印上「※ 補印 第 N 次 ※」。
+#[tauri::command]
+pub async fn reprint_receipt(ctx: State<'_, Ctx>, bill_id: String) -> AppResult<()> {
+    services::printer::reprint_receipt(&ctx, bill_id).await
+}

@@ -630,22 +630,28 @@ pub async fn fan_out(ctx: &Ctx) -> AppResult<usize> {
         };
         let business_date: Option<String> = row.get("business_date");
         let order_id = payload.get("orderId").and_then(|v| v.as_str());
+        let bill_id = payload.get("billId").and_then(|v| v.as_str());
 
         let mut uow = ctx.db.begin_write().await?;
         for (seq, job) in jobs.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO print_jobs (id, store_id, printer_id, station_id, business_date,
-                                         order_id, doc_type, reason, doc, doc_sha256,
+                                         order_id, bill_id, doc_type, reason, doc, doc_sha256,
                                          idempotency_key, priority, status, attempts,
                                          next_attempt_at, created_at, updated_at)
-                 SELECT ?1, s.id, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', 0, ?12, ?12, ?12
+                 SELECT ?1, s.id, ?2, ?3, ?4, ?5, ?13, ?6, ?7, ?8, ?9, ?10, ?11,
+                        'pending', 0, ?12, ?12, ?12
                    FROM stores s ORDER BY s.id LIMIT 1
                  ON CONFLICT (idempotency_key) DO NOTHING",
             )
             .bind(Id::new().as_str())
             .bind(&job.printer_id)
             .bind(&job.station_id)
-            .bind(business_date.clone().unwrap_or_else(|| now.iso()[..10].to_string()))
+            .bind(
+                business_date
+                    .clone()
+                    .unwrap_or_else(|| now.iso()[..10].to_string()),
+            )
             .bind(order_id)
             .bind(doc_type)
             .bind(reason_str(&payload))
@@ -659,6 +665,7 @@ pub async fn fan_out(ctx: &Ctx) -> AppResult<usize> {
             // 廚房單雖然更急，但它印到的是另一台機器，不會互相排隊。
             .bind(if doc_type == "kitchen" { 10 } else { 0 })
             .bind(now.iso())
+            .bind(bill_id)
             .execute(uow.conn())
             .await?;
             made += 1;
@@ -795,6 +802,102 @@ pub async fn queue_status(ctx: &Ctx) -> AppResult<PrintQueueStatus> {
         unrouted,
         detail,
     })
+}
+
+/// 補印收據。
+///
+/// # 為什麼重送的是快照，而不是重新排版
+///
+/// 分帳之後一張訂單會有好幾張帳單（$150 分四份就是四張），而客人手上是其中
+/// **一份** —— 從訂單重建根本重建不出來。快照同時也更誠實：補印本來就該是
+/// 「再給你一張一模一樣的」，而不是一張反映了之後所有改動的新單。
+///
+/// # 補印一定要看得出來
+///
+/// 兩張一樣的收據可以拿去做假帳，所以單上會印「※ 補印 第 N 次 ※」，
+/// 而且每一次都寫進稽核紀錄。次數是從稽核紀錄數出來的 —— 那是唯一一份
+/// 不會被前端漏掉的計數。
+pub async fn reprint_receipt(ctx: &Ctx, bill_id: String) -> AppResult<()> {
+    rbac::require(&ctx.db, &ctx.actor, PERM_REPRINT).await?;
+    let now = Stamp::now();
+
+    let row = sqlx::query(
+        "SELECT receipt_doc, business_date, bill_no, order_id FROM bills WHERE id = ?1",
+    )
+    .bind(&bill_id)
+    .fetch_optional(ctx.db.reader())
+    .await?
+    .ok_or_else(|| AppError::NotFound("找不到這張帳單".into()))?;
+
+    let doc_json: Option<String> = row.get("receipt_doc");
+    let doc_json = doc_json.ok_or_else(|| {
+        AppError::NotFound("這張帳單沒有留下收據原稿（升級之前結的帳），補不了。".into())
+    })?;
+    let business_date: String = row.get("business_date");
+    let bill_no: String = row.get("bill_no");
+    let order_id: Option<String> = row.get("order_id");
+
+    let seq: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_logs WHERE entity_type = 'Bill' AND entity_id = ?1
+            AND action = 'reprint'",
+    )
+    .bind(&bill_id)
+    .fetch_one(ctx.db.reader())
+    .await?;
+
+    let mut doc: crate::receipt::ReceiptDoc = serde_json::from_str(&doc_json)
+        .map_err(|e| AppError::Internal(format!("收據原稿讀不回來：{e}")))?;
+    mark_reprint(&mut doc, seq + 1);
+
+    let mut uow = ctx.db.begin_write().await?;
+    let payload = serde_json::json!({
+        "orderId": order_id,
+        "billId": bill_id,
+        "billNo": bill_no,
+        "doc": doc,
+        "reason": "reprint",
+    });
+    crate::services::order::enqueue_print(
+        &mut uow,
+        "print.receipt",
+        &business_date,
+        &payload,
+        &now,
+    )
+    .await?;
+
+    crate::services::audit::write_in(
+        &mut uow,
+        crate::services::audit::AuditEntry::new(
+            "Bill",
+            &bill_id,
+            crate::services::audit::AuditAction::Reprint,
+        )
+        .to(&bill_no)
+        .on(&business_date),
+        &ctx.actor,
+        &now,
+    )
+    .await?;
+    uow.commit().await?;
+    Ok(())
+}
+
+/// 在收據最上面加一行「※ 補印 第 N 次 ※」。
+///
+/// 加在最前面而不是原本版型裡的位置，是因為快照已經排好了 ——
+/// 而放在最上面反而更難忽略，那正是這一行存在的理由。
+fn mark_reprint(doc: &mut crate::receipt::ReceiptDoc, seq: i64) {
+    use crate::receipt::{Block, TextStyle};
+    doc.blocks.insert(
+        0,
+        Block::Text {
+            content: format!("※ 補印 第 {seq} 次 ※"),
+            style: TextStyle::centered(),
+        },
+    );
+    // 補印不開錢箱：沒有人在付錢。
+    doc.finish.open_drawer = false;
 }
 
 /// 把一張死掉的單放回佇列。

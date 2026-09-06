@@ -583,6 +583,157 @@ async fn bills_can_be_found_by_the_tail_of_the_number() {
     e.ctx.db.close().await;
 }
 
+/// ★ 補印要看得出來是第幾次。
+///
+/// 兩張一樣的收據可以拿去做假帳，所以每一張補印的單上都寫著第幾次，
+/// 而且每一次都進稽核紀錄。
+#[tokio::test]
+async fn a_reprint_says_which_copy_it_is() {
+    let e = env("reprint").await;
+    let bill = e.settled_bill(&["珍珠奶茶"], "cash").await;
+
+    for n in 1..=2 {
+        open_pos::services::printer::reprint_receipt(&e.ctx, bill.id.clone())
+            .await
+            .unwrap();
+        let doc: String = sqlx::query_scalar(
+            "SELECT payload_json FROM outbox WHERE kind = 'print.receipt'
+              ORDER BY created_at DESC, id DESC LIMIT 1",
+        )
+        .fetch_one(e.ctx.db.reader())
+        .await
+        .unwrap();
+        assert!(
+            doc.contains(&format!("補印 第 {n} 次")),
+            "第 {n} 次補印要寫在單上：{doc}"
+        );
+        // 補印不開錢箱 —— 沒有人在付錢。
+        assert!(
+            doc.contains("\"open_drawer\":false"),
+            "補印不該開錢箱：{doc}"
+        );
+    }
+
+    let n: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_logs WHERE entity_id = ?1 AND action = 'reprint'",
+    )
+    .bind(&bill.id)
+    .fetch_one(e.ctx.db.reader())
+    .await
+    .unwrap();
+    assert_eq!(n, 2, "每一次補印都要留紀錄");
+
+    e.ctx.db.close().await;
+}
+
+/// 分帳的每一份各自補印各自那一張，不會印成整單。
+#[tokio::test]
+async fn each_split_part_reprints_its_own_receipt() {
+    let e = env("reprintsplit").await;
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    let item = tree
+        .categories
+        .iter()
+        .flat_map(|c| c.items.iter())
+        .find(|i| i.name == "珍珠奶茶")
+        .unwrap()
+        .id
+        .clone();
+    let o = order::open_order(
+        &e.ctx,
+        order::OpenOrderReq {
+            channel: Channel::Takeout,
+            table_id: None,
+            guest_count: None,
+            client_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    let o = order::add_lines(
+        &e.ctx,
+        order::AddLinesReq {
+            order_id: o.id.clone(),
+            expected_rev: o.rev,
+            lines: vec![order::NewLine {
+                item_id: item,
+                variant_id: None,
+                modifier_ids: vec![],
+                qty_milli: None,
+                note: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    let total = o.grand_total;
+
+    for _ in 0..2 {
+        let fresh = order::get_order(&e.ctx, &o.id).await.unwrap();
+        order::settle(
+            &e.ctx,
+            order::SettleReq {
+                order_id: o.id.clone(),
+                expected_rev: fresh.rev,
+                payments: vec![order::PaymentReq {
+                    method_code: "cash".into(),
+                    amount: 10_000,
+                    tendered: Some(10_000),
+                    ref_no: None,
+                }],
+                idem_key: open_pos::core::ids::Id::new().to_string(),
+                split: Some(order::SplitReq::Even { parts: 2 }),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let bills = refund::find_bills(
+        &e.ctx,
+        refund::FindBillsReq {
+            business_date: None,
+            bill_no: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(bills.len(), 2);
+
+    for b in &bills {
+        open_pos::services::printer::reprint_receipt(&e.ctx, b.id.clone())
+            .await
+            .unwrap();
+        let payload: String = sqlx::query_scalar(
+            "SELECT payload_json FROM outbox WHERE kind = 'print.receipt'
+              ORDER BY created_at DESC, id DESC LIMIT 1",
+        )
+        .fetch_one(e.ctx.db.reader())
+        .await
+        .unwrap();
+        assert!(
+            payload.contains(&b.bill_no),
+            "補印的要是這一份：{}",
+            b.bill_no
+        );
+        assert!(
+            payload.contains("分帳"),
+            "補印的分帳單上還是要看得出是第幾份：{payload}"
+        );
+        // 分帳單印的是「本次應付」（這一份）與「全單」（整張），
+        // 而不是一個孤零零的「合計」—— 後者在分帳單上一定會被誤讀成整單。
+        assert!(payload.contains("本次應付"), "{payload}");
+        assert!(payload.contains("全單"), "{payload}");
+        assert!(
+            payload.contains(&format!("\"content\":\"{}\"", total / 2)),
+            "要印出這一份的金額 {}：{payload}",
+            total / 2
+        );
+    }
+
+    e.ctx.db.close().await;
+}
+
 async fn e_refund(
     e: &Env,
     bill_id: &str,

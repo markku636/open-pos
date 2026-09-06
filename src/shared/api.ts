@@ -817,3 +817,8 @@ export const refundApi = {
       },
     }),
 }
+
+/** 補印收據。重送的是當初那一張的快照，並印上「※ 補印 第 N 次 ※」。 */
+export const reprintApi = {
+  receipt: (billId: string) => transport.call<void>('reprint_receipt', { billId }),
+}

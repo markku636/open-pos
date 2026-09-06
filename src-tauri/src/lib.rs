@@ -226,6 +226,7 @@ pub fn run() {
             commands::find_bills,
             commands::refund,
             commands::list_reasons,
+            commands::reprint_receipt,
             commands::get_order,
             commands::list_open_orders,
             commands::payment_methods,

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   reasonApi,
   refundApi,
+  reprintApi,
   type AppError,
   type Bill,
   type BillPayment,
@@ -147,7 +148,21 @@ function RefundForm({
   const [paymentId, setPaymentId] = useState<string | null>(null)
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  const [reprinting, setReprinting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const reprint = async () => {
+    setReprinting(true)
+    try {
+      await reprintApi.receipt(bill.id)
+      setError(null)
+      await onDone('補印的收據已經送進出單佇列。')
+    } catch (e) {
+      setError((e as AppError).message ?? String(e))
+    } finally {
+      setReprinting(false)
+    }
+  }
 
   useEffect(() => {
     reasonApi
@@ -209,11 +224,23 @@ function RefundForm({
         <span className="text-sm text-slate-500">{bill.orderNo}</span>
         <span className="ml-auto text-2xl font-semibold">{formatMoney(bill.grandTotal)}</span>
       </div>
-      <p className="mt-1 text-xs text-slate-600">
-        {bill.businessDate} {hhmm(bill.settledAt)}
-        {bill.splitLabel && `　分帳 ${bill.splitLabel}`}
-        {bill.refundedTotal > 0 && `　已退 ${formatMoney(bill.refundedTotal)}`}
-      </p>
+      <div className="mt-1 flex items-center gap-3">
+        <p className="text-xs text-slate-600">
+          {bill.businessDate} {hhmm(bill.settledAt)}
+          {bill.splitLabel && `　分帳 ${bill.splitLabel}`}
+          {bill.refundedTotal > 0 && `　已退 ${formatMoney(bill.refundedTotal)}`}
+        </p>
+        {/* 補印重送的是當初那一張的快照，而且單上會寫第幾次 ——
+            兩張一樣的收據可以拿去做假帳。 */}
+        <button
+          className="ml-auto rounded bg-slate-800 px-3 py-1 text-xs text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+          disabled={reprinting}
+          title="再印一張給客人。單上會註明是第幾次補印"
+          onClick={() => void reprint()}
+        >
+          補印收據
+        </button>
+      </div>
 
       {done && (
         <p className="mt-3 rounded border border-emerald-800 bg-emerald-950/50 px-3 py-2 text-sm text-emerald-200">

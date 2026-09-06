@@ -1130,6 +1130,7 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         ctx,
         &store,
         &req.order_id,
+        &bill_id,
         &bill_no,
         change,
         &plan,
@@ -2030,6 +2031,7 @@ async fn enqueue_receipt(
     _ctx: &Ctx,
     store: &StoreConfig,
     order_id: &str,
+    bill_id: &str,
     bill_no: &str,
     change: i64,
     plan: &SplitPlan,
@@ -2104,7 +2106,26 @@ async fn enqueue_receipt(
     // 收據**重新排版**（不像廚房單用快照）：收據是「當前的事實」，
     // 客人手上那張要反映最後的結帳結果。
     let doc = templates::customer_receipt(&data, PaperWidth::Mm80);
-    let payload = serde_json::json!({ "orderId": order_id, "billNo": bill_no, "doc": doc });
+    // ★ 收據原稿存到帳單上。補印重送的就是它 ——
+    //   不去翻列印佇列，是因為還沒接印表機時照樣結得了帳，而客人還是要收據。
+    sqlx::query("UPDATE bills SET receipt_doc = ?2, updated_at = ?3 WHERE id = ?1")
+        .bind(bill_id)
+        .bind(
+            serde_json::to_string(&doc)
+                .map_err(|e| AppError::Internal(format!("收據序列化失敗：{e}")))?,
+        )
+        .bind(now.iso())
+        .execute(uow.conn())
+        .await?;
+
+    // billId 是補印用的：分帳之後一張訂單有好幾張帳單，只靠 orderId
+    // 找不回客人手上是哪一份。
+    let payload = serde_json::json!({
+        "orderId": order_id,
+        "billId": bill_id,
+        "billNo": bill_no,
+        "doc": doc,
+    });
     enqueue_print(uow, "print.receipt", &business_date, &payload, now).await
 }
 
