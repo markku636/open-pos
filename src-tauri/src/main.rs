@@ -3,5 +3,5 @@
 
 fn main() {
     open_pos::init_tracing(None);
-    println!("open-pos {} — GUI 進入點（M0 骨架）", open_pos::VERSION);
+    open_pos::run();
 }

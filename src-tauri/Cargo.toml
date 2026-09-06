@@ -94,7 +94,12 @@ tracing-appender = "0.2"
 # GetDriveType：偵測資料庫是否被放在網路磁碟上。
 # SQLite 官方明言 WAL 無法跨網路檔案系統（-shm 需要跨主機共享記憶體，SMB 給不了），
 # 結果是靜默資料損毀 —— 必須在開機時擋下來，而不是等它壞。
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+windows-sys = { version = "0.61", features = [
+  "Win32_Storage_FileSystem",
+  "Win32_Foundation",
+  # 開機失敗時還沒有視窗，只能用原生 MessageBox 把訊息送到店家眼前。
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

@@ -15,6 +15,12 @@ pub struct AppCtx {
     pub db: SqliteDb,
     pub layout: DataLayout,
     pub started_at: DateTime<Utc>,
+    /// 目前的操作者。
+    ///
+    /// 登入畫面排在 M4；在那之前桌面版以預設店長帳號執行。
+    /// 之所以現在就放進 Ctx 而不是等登入做完，是因為稽核需要一個真實的 actor ——
+    /// 「等以後再補」的那段空白日子，事後是補不回來的。
+    pub actor: crate::services::rbac::Actor,
 }
 
 pub type Ctx = Arc<AppCtx>;

@@ -19,7 +19,8 @@
         "minHeight": 700,
         "resizable": true,
         "visible": false,
-        "backgroundColor": "#020617"
+        "backgroundColor": "#020617",
+        "label": "main"
       }
     ],
     "security": {

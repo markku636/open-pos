@@ -27,10 +27,20 @@ async fn ctx(tag: &str) -> (DataLayout, open_pos::ctx::Ctx) {
     let layout = DataLayout::new(root);
     layout.ensure().unwrap();
     let db = SqliteDb::open(&layout.db_file(), Some(2)).await.unwrap();
+    // 種子資料要跑，否則沒有預設店長帳號可當 actor。
+    let now = open_pos::core::clock::Stamp::now();
+    let mut uow = db.begin_write().await.unwrap();
+    open_pos::services::seed::apply(&mut uow, &now)
+        .await
+        .unwrap();
+    uow.commit().await.unwrap();
+    let actor = open_pos::services::seed::default_actor(&db).await.unwrap();
+
     let ctx = Arc::new(AppCtx {
         db,
         layout: DataLayout::new(layout.root.clone()),
-        started_at: open_pos::core::clock::now(),
+        started_at: now.at,
+        actor,
     });
     (layout, ctx)
 }

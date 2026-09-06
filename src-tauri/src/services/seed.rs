@@ -17,6 +17,7 @@ use crate::core::clock::Stamp;
 use crate::core::ids::Id;
 use crate::error::AppResult;
 use crate::infra::db::sqlite::SqliteUow;
+use crate::services::rbac::Actor;
 
 /// 權限碼。`(code, group_code, group_name, name)`。
 ///
@@ -333,6 +334,60 @@ async fn ensure_store(uow: &mut SqliteUow, now: &Stamp) -> AppResult<bool> {
         .await?;
     }
 
+    // 預設店長帳號。
+    //
+    // ⚠️ v1.0 還沒有登入畫面（排在 M4），所以桌面版目前以這個帳號執行所有操作。
+    //    稽核紀錄會如實記在它頭上 —— 這比「actor 是 NULL」誠實得多，
+    //    等登入接上之後，既有的稽核資料仍然解釋得通。
+    //    pin_hash 留空表示「尚未設定密碼」，登入功能上線時會強制要求設定。
+    let user_id = Id::new();
+    sqlx::query(
+        "INSERT INTO users (id, store_id, code, name, is_active, created_at, updated_at)
+         VALUES (?1, ?2, 'admin', '店長', 1, ?3, ?3)",
+    )
+    .bind(user_id.as_str())
+    .bind(store_id.as_str())
+    .bind(now.iso())
+    .execute(uow.conn())
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO user_roles (user_id, role_id, created_at)
+         SELECT ?1, r.id, ?2 FROM roles r WHERE r.name = 'owner'",
+    )
+    .bind(user_id.as_str())
+    .bind(now.iso())
+    .execute(uow.conn())
+    .await?;
+
     tracing::info!(store_id = %store_id, "已建立預設店家資料");
     Ok(true)
+}
+
+/// 目前的操作者。
+///
+/// 登入畫面上線前的過渡做法：取第一個具有 owner 角色的在職使用者。
+/// 這是**刻意的暫時方案**，不是設計 —— 它讓稽核從第一天就有真實的 actor 可記，
+/// 而不是等登入做完才開始有資料（那些空白的日子事後補不回來）。
+pub async fn default_actor(db: &crate::infra::db::sqlite::SqliteDb) -> AppResult<Actor> {
+    let row: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT u.id, u.code, u.name
+           FROM users u
+           JOIN user_roles ur ON ur.user_id = u.id
+           JOIN roles r ON r.id = ur.role_id
+          WHERE r.name = 'owner' AND u.is_active = 1 AND u.deleted_at IS NULL
+          ORDER BY u.id
+          LIMIT 1",
+    )
+    .fetch_optional(db.reader())
+    .await?;
+
+    row.map(|(user_id, code, name)| Actor {
+        user_id,
+        code,
+        name,
+    })
+    .ok_or_else(|| {
+        crate::error::AppError::Internal("找不到預設的店長帳號 —— 種子資料可能沒跑完".into())
+    })
 }

@@ -5,7 +5,14 @@
 台灣中小餐飲的 POS 幾乎都是綁約的封閉系統：月租費、硬體綁定、資料拿不回來。
 open-pos 想做的是相反的東西 —— 下載一個安裝檔、零月租、資料在自己的硬碟上、程式碼全開源。
 
-**目前狀態：v0.1.0 開發中（M0 骨架）。還不能拿去營業。**
+**目前狀態：v0.1.0 開發中。已經可以建菜單，但還不能收錢 —— 請不要拿去營業。**
+
+| 已經可用 | 進行中 |
+| --- | --- |
+| 商品維護（分類 / 品項 / 規格） | 點餐與結帳（M4） |
+| 系統健康檢查 | 出單機（M5） |
+| 備份與還原 | 班別日結（M6） |
+| 區網 API 與靜態頁面服務 | 掃碼點餐（v1.3）、電子發票（v1.4） |
 
 ---
 
@@ -46,6 +53,13 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all
 ```
 
+第一次啟動會自動建立一間名為「我的店」的預設店家、一台收銀機終端、
+26 個權限碼與 5 個系統角色，然後就可以在「商品維護」分頁建菜單了。
+
+> ⚠️ **登入畫面還沒做（排在 M4）。** 桌面版目前以預設的「店長」帳號執行所有操作，
+> 稽核紀錄會如實記在它頭上。這比「操作者是 NULL」誠實 —— 等登入接上之後，
+> 現在產生的稽核資料仍然解釋得通。
+
 **headless 模式**（無螢幕主機 / Docker / 只當 KDS 與掃碼點餐的後端）：
 
 ```bash
@@ -57,6 +71,11 @@ cargo run --bin open-posd --no-default-features --features server
 
 **沒有出單機也能貢獻**：`fakeprinter` 會在本機模擬一台 ESC/POS 印表機，
 把收到的位元組流解回人類可讀的文字或 PNG，還能模擬缺紙、離線、緩衝區太小、隨機斷線。
+（骨架已在，完整功能排在 M5。）
+
+**看看區網那一側**：headless server 會把 `dist/` 一起服務出去，
+所以同區網的平板 / 手機可以直接開 `http://<你的區網IP>:8129/kds.html`。
+啟動時會把可用的網址印出來。
 
 ---
 
@@ -79,10 +98,22 @@ Tauri commands      axum POST /api/rpc/{name}
 * **交易內嚴禁任何外部 I/O**（印表機 TCP、檔案投遞、HTTP）。寫入池只有一條連線，
   交易一慢全店的寫入都排隊。需要外部 I/O 的動作一律寫進 outbox，由背景 worker 重試。
 
-技術棧：Tauri 2 + Rust + sqlx（SQLite）+ React 18 + Vite 5 + Tailwind 3 + Zustand。
+**API 只有一個形狀**：`POST /api/rpc/{name}`，而 `{name}` 與 Tauri command 名稱一對一。
+這讓前端的 `src/shared/api.ts` 只需要一份 —— 兩個 transport 的實作各差一行。
+成功時直接回 `T` 的 JSON（不包 envelope），失敗回非 2xx + `{"error": AppError}`，
+與 `invoke` 的 resolve / reject 同形。
+
+**權限邊界**：商品維護、報表、印表機設定、關班**不存在於**區網 server，只走 Tauri IPC。
+唯讀的菜單樹（`menu_tree`）例外 —— KDS 與顧客手機需要它。
+所以就算區網服務有漏洞，攻擊面也只到「亂送單」，到不了「看營業額 / 改價格」。
+
+技術棧：Tauri 2 + Rust + sqlx（SQLite）+ React 18 + Vite 5 + Tailwind 3。
 架構參考同作者的 [db-kit](https://github.com/markku636/db-kit)。
 
-設計決策記錄在 [`docs/adr/`](docs/adr/)。
+設計決策記錄在 [`docs/adr/`](docs/adr/)：
+[金額用整數元](docs/adr/0001-money-as-integer-dollars.md)、
+[時間與營業日](docs/adr/0002-time-and-business-date.md)、
+[單一來源 DDL](docs/adr/0003-single-source-ddl.md)。
 
 ---
 
@@ -90,7 +121,7 @@ Tauri commands      axum POST /api/rpc/{name}
 
 | 版本 | 內容 |
 | --- | --- |
-| **v1.0** | 點餐 + 結帳 + 出單 + 班別日結 + 備份 |
+| **v1.0** | 點餐 + 結帳 + 出單 + 班別日結 + 備份（商品維護與備份已完成） |
 | v1.1 | KDS 廚房顯示 |
 | v1.2 | 報表強化 |
 | v1.3 | 顧客掃碼自助點餐 |

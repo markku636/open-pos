@@ -89,6 +89,8 @@ async fn rpc(
     }
 }
 
+// `_args`：v1.0 的三個端點都不吃參數。留著簽章是因為下一個端點（KDS 取單）就會用到，
+// 到時候不必動所有呼叫端。
 async fn dispatch(ctx: &Ctx, name: &str, _args: Value) -> AppResult<Value> {
     let (access, value) = match name {
         "app_info" => (
@@ -96,6 +98,12 @@ async fn dispatch(ctx: &Ctx, name: &str, _args: Value) -> AppResult<Value> {
             to_value(services::app::app_info(ctx).await?)?,
         ),
         "health" => (Access::Public, to_value(services::app::health(ctx).await?)?),
+        // 唯讀的菜單樹。KDS 與掃碼點餐都要它 —— 客人手機上要看得到品名與價格。
+        // 商品的**維護**（新增 / 改價 / 刪除）刻意不在這裡，只走 Tauri IPC。
+        "menu_tree" => (
+            Access::Public,
+            to_value(services::menu::menu_tree(ctx).await?)?,
+        ),
         other => {
             return Err(AppError::NotFound(format!(
                 "未知的指令「{other}」。管理類指令刻意不在區網端點上提供 —— \

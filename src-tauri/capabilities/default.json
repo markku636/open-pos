@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "收銀機視窗的權限。刻意維持最小集合：這個 app 的敏感操作全部走自己的 command，不透過 Tauri 外掛碰檔案系統或 shell。",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:default"]
+}
