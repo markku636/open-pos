@@ -252,3 +252,47 @@ async fn a_backup_from_a_newer_version_is_refused() {
 
     e.ctx.db.close().await;
 }
+
+/// 診斷資訊要**能診斷**，而且不能洩漏店家的營業內容。
+#[tokio::test]
+async fn the_diagnostics_report_is_useful_and_does_not_leak_the_menu() {
+    use open_pos::services::diagnostics;
+
+    let e = env("diag").await;
+    demo::seed_demo_menu(&e.ctx).await.unwrap();
+
+    let text = diagnostics::report(&e.ctx).await.unwrap();
+
+    // 要有的東西：版本、資料位置、健康檢查、出單機、備份、資料量。
+    for needle in [
+        "open-pos 診斷資訊",
+        "程式版本",
+        "資料目錄",
+        "健康檢查",
+        "出單機",
+        "列印佇列",
+        "備份",
+        "資料量",
+    ] {
+        assert!(text.contains(needle), "診斷少了「{needle}」");
+    }
+
+    // ★ 不能有的東西：品名。要診斷「印不出來」需要的是設定與錯誤訊息，
+    //   不是那家店賣了什麼。
+    assert!(
+        !text.contains("珍珠奶茶"),
+        "診斷資訊洩漏了菜單內容：
+{text}"
+    );
+    assert!(!text.contains("雞腿便當"), "診斷資訊洩漏了菜單內容");
+
+    // 存成檔案時要有 BOM —— Windows 的記事本沒有 BOM 會把中文顯示成亂碼，
+    // 而回報問題的人最常用的就是記事本。
+    let out = diagnostics::export(&e.ctx, e.root.to_string_lossy().into_owned())
+        .await
+        .unwrap();
+    let bytes = std::fs::read(&out).unwrap();
+    assert_eq!(&bytes[..3], &[0xEF, 0xBB, 0xBF], "少了 UTF-8 BOM");
+
+    e.ctx.db.close().await;
+}

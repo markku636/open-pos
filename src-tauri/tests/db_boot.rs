@@ -229,3 +229,49 @@ async fn schema_fingerprint_is_stable_and_non_empty() {
         "指紋不該包含 migration 記錄表 —— 它的內容隨時間變動"
     );
 }
+
+/// ★ 資料庫比程式新時要拒絕啟動。
+///
+/// 降版是真實情境：使用者手動裝回舊的安裝檔、或在另一台機器上還原了新版備份。
+/// SQLite 不會攔你 —— 它只會在某個查詢時噴 no such column，而那時已經開了
+/// 半天的單，而且那些單存在一個不完整的舊 schema 裡。
+#[tokio::test]
+async fn a_database_from_a_newer_version_is_refused() {
+    let dir = std::env::temp_dir().join(format!(
+        "openpos_it_newerdb_{}_{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("pos.db");
+
+    // 先正常建一次。
+    SqliteDb::open(&path, Some(2)).await.unwrap().close().await;
+
+    // 塞一個「來自未來」的 migration 版本。
+    let url = format!("sqlite://{}", path.display().to_string().replace('\\', "/"));
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO _sqlx_migrations
+           (version, description, installed_on, success, checksum, execution_time)
+         VALUES (99999, 'from the future', datetime('now'), 1, X'00', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let Err(err) = SqliteDb::open(&path, Some(2)).await else {
+        panic!("比程式新的資料庫竟然開得起來");
+    };
+    assert_eq!(err.code(), "ERR_STARTUP");
+    // 訊息要說得出該怎麼辦 —— 看到它的人正站在一台開不了機的收銀機前面。
+    assert!(err.message().contains("更新"), "{}", err.message());
+    assert!(err.message().contains("99999"), "{}", err.message());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -102,6 +102,16 @@ impl SqliteDb {
             .await
             .map_err(|e| AppError::Db(format!("開啟寫入連線失敗：{e}")))?;
 
+        // ★ 先擋「資料庫比程式新」，再跑 migration。
+        //
+        //   降版是真實情境：使用者手動裝回舊的安裝檔、或是在另一台機器上還原了
+        //   新版的備份。SQLite 不會攔你 —— 它只會在某個查詢時噴 no such column，
+        //   而那時已經開了半天的單，而且新增的那些單存在一個不完整的舊 schema 裡。
+        //
+        //   sqlx 的 migrator 遇到「資料庫有它不認得的版本」時不會報錯（它只往前跑），
+        //   所以這一關必須自己做。
+        Self::refuse_if_database_is_newer(&writer).await?;
+
         // migration 必須在 writer 上、且在 reader 建立之前跑完。
         MIGRATOR
             .run(&writer)
@@ -119,6 +129,43 @@ impl SqliteDb {
         let db = Self { writer, reader };
         db.verify_boot_invariants().await?;
         Ok(db)
+    }
+
+    /// 資料庫的 migration 版本比這個 binary 內建的還新時，拒絕啟動。
+    ///
+    /// 訊息要說得出**該怎麼辦**（去裝新版），而不是只說「不相容」——
+    /// 看到這個訊息的人正站在一台開不了機的收銀機前面。
+    async fn refuse_if_database_is_newer(writer: &SqlitePool) -> AppResult<()> {
+        // 全新的資料庫還沒有這張表，那當然不算「比較新」。
+        let has_table: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+        )
+        .fetch_one(writer)
+        .await
+        .unwrap_or(0);
+        if has_table == 0 {
+            return Ok(());
+        }
+
+        let db_version: Option<i64> =
+            sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(writer)
+                .await
+                .unwrap_or(None);
+        let Some(db_version) = db_version else {
+            return Ok(());
+        };
+        let app_version = Self::max_migration_version();
+        if db_version > app_version {
+            return Err(AppError::Startup(format!(
+                "這份資料是比較新的 open-pos 建立的（schema {db_version}），
+                 而現在這個版本只支援到 schema {app_version}。
+
+                 請把 open-pos 更新到較新的版本再開啟。
+                 **不要**用舊版繼續營業 —— 資料會存進一個不完整的結構裡，之後救不回來。"
+            )));
+        }
+        Ok(())
     }
 
     /// 開機自檢。**任何一項失敗都拒絕啟動**，不降級執行。

@@ -8,6 +8,7 @@ import PrinterSettings from './PrinterSettings'
 import ShiftPanel from './ShiftPanel'
 import {
   api,
+  diagnosticsApi,
   printerApi,
   transport,
   type AppError,
@@ -181,6 +182,13 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
         </ul>
       </section>
 
+      <section>
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          回報問題
+        </h2>
+        <DiagnosticsBox />
+      </section>
+
       {health && (
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -200,6 +208,64 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
             ))}
           </ul>
         </section>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 診斷資訊。
+ *
+ * 「今天中午印不出來，現在又好了」是最常見的回報，而地端 + 離線 +
+ * 非技術使用者三件事疊起來，代表維護者沒有任何辦法重現。
+ * 所以要讓店家能一鍵拿到一份**貼得進 issue** 的純文字。
+ */
+function DiagnosticsBox() {
+  const [text, setText] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  return (
+    <div>
+      <p className="mb-2 text-xs text-slate-500">
+        內容包含版本、設定、健康檢查、失敗的列印工作與最近的 log。
+        <span className="text-slate-400">不含品名、客人資訊或帳單明細</span>
+        ，而且不會自動上傳任何東西。
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700 disabled:opacity-40"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            diagnosticsApi
+              .report()
+              .then(setText)
+              .catch((e: AppError) => setText(`讀不到診斷資訊：${e.message}`))
+              .finally(() => setBusy(false))
+          }}
+        >
+          產生診斷資訊
+        </button>
+        {text && (
+          <button
+            className="rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
+            onClick={() => {
+              navigator.clipboard
+                ?.writeText(text)
+                .then(() => setCopied(true))
+                .catch(() => {})
+              setTimeout(() => setCopied(false), 2000)
+            }}
+          >
+            {copied ? '已複製' : '複製全部'}
+          </button>
+        )}
+      </div>
+      {text && (
+        <pre className="mt-3 max-h-80 overflow-auto rounded bg-slate-950/70 p-3 text-[11px] leading-relaxed text-slate-400">
+          {text}
+        </pre>
       )}
     </div>
   )

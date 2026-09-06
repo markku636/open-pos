@@ -13,6 +13,7 @@ pub mod audit;
 pub mod backup;
 pub mod backup_worker;
 pub mod demo;
+pub mod diagnostics;
 pub mod menu;
 pub mod order;
 pub mod print_worker;

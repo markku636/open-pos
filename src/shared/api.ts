@@ -537,3 +537,19 @@ export const backupApi = {
   cancelRestore: () => transport.call<void>('cancel_restore'),
   pendingRestore: () => transport.call<PendingRestore | null>('pending_restore'),
 }
+
+// ---------------------------------------------------------------- 診斷
+
+/**
+ * 診斷資訊。
+ *
+ * 「今天中午印不出來，現在又好了」這種回報，維護者沒有任何辦法重現 ——
+ * 一人維護的專案通常不是死在寫程式，是死在無法診斷的回報上。
+ *
+ * 內容不含品名、客人資訊或帳單明細，而且**不會自動上傳任何東西**。
+ */
+export const diagnosticsApi = {
+  report: () => transport.call<string>('diagnostics_report'),
+  /** 存成一個 .txt（含 BOM，記事本開起來中文才不會變亂碼）。 */
+  export: (dir: string) => transport.call<string>('export_diagnostics', { dir }),
+}

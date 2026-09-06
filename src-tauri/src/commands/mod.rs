@@ -335,3 +335,19 @@ pub async fn pending_restore(
 ) -> AppResult<Option<services::backup::PendingRestore>> {
     services::backup::pending_restore(&ctx).await
 }
+
+// ---------------------------------------------------------------- 診斷
+
+/// 產生診斷資訊（純文字）。
+///
+/// 「今天中午印不出來，現在又好了」這種回報，維護者沒有任何辦法重現 ——
+/// 一人維護的專案通常不是死在寫程式，是死在無法診斷的回報上。
+#[tauri::command]
+pub async fn diagnostics_report(ctx: State<'_, Ctx>) -> AppResult<String> {
+    services::diagnostics::report(&ctx).await
+}
+
+#[tauri::command]
+pub async fn export_diagnostics(ctx: State<'_, Ctx>, dir: String) -> AppResult<String> {
+    services::diagnostics::export(&ctx, dir).await
+}

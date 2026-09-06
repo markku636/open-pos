@@ -243,6 +243,8 @@ pub fn run() {
             commands::stage_restore,
             commands::cancel_restore,
             commands::pending_restore,
+            commands::diagnostics_report,
+            commands::export_diagnostics,
         ])
         .setup(|app| {
             use tauri::Manager;
