@@ -325,6 +325,60 @@ pub async fn delete(ctx: &Ctx, id: String) -> AppResult<()> {
     Ok(())
 }
 
+/// 有哪些金流商可以選、各自要哪些憑證欄位。
+///
+/// # 為什麼這要是一支指令，而不是前端自己抄一份
+///
+/// 前端新增一筆設定時，畫面上就得知道「藍新要三個欄位」—— 而在存檔之前
+/// 後端還沒有任何一列可以回。最省事的做法是在 TS 裡再寫一份同樣的表。
+///
+/// 但那份表會腐爛：改了 `fields_for()` 卻忘了改 TS，症狀是
+/// 「畫面上都填好了，存進去卻說缺欄位」，而且只在新增時發生、改既有的那筆
+/// 不會發生 —— 是最難重現的那一種。所以這裡多開一支指令，讓那張表
+/// 從頭到尾只有一份。
+pub fn providers() -> Vec<ProviderDef> {
+    ["manual", "linepay", "newebpay"]
+        .iter()
+        .map(|code| ProviderDef {
+            code,
+            label: provider_label(code),
+            note: provider_note(code),
+            fields: fields_for(code)
+                .iter()
+                .map(|(key, label, hint)| CredentialField {
+                    key,
+                    label,
+                    hint,
+                    // 還沒有這一筆，所以一定沒設定過。
+                    is_set: false,
+                    tail: None,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDef {
+    pub code: &'static str,
+    pub label: &'static str,
+    /// 給店家看的一段話：這條線適合誰、需要先去辦什麼。
+    pub note: &'static str,
+    pub fields: Vec<CredentialField>,
+}
+
+fn provider_note(code: &str) -> &'static str {
+    match code {
+        "manual" => {
+            "刷卡機是銀行給的那一台。收銀員刷完把授權碼抄進 POS，這裡只記帳。             不需要網路，也不需要任何憑證。"
+        }
+        "linepay" => "掃客人手機出示的付款碼。需要 LINE Pay 商家帳號。",
+        "newebpay" => "信用卡。需要跟藍新簽約後拿到的商店代號與兩把金鑰。",
+        _ => "",
+    }
+}
+
 /// 讀出憑證。**只給服務層內部用**，不經過任何指令回到前端。
 pub async fn credentials(ctx: &Ctx, gateway_id: &str) -> AppResult<BTreeMap<String, String>> {
     Ok(sqlx::query_scalar::<_, Option<String>>(

@@ -8,6 +8,7 @@ import MenuManager from './MenuManager'
 import OrderScreen, { type Seat } from './OrderScreen'
 import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
+import GatewayPanel from './GatewayPanel'
 import SalesPanel from './SalesPanel'
 import ShiftPanel from './ShiftPanel'
 import {
@@ -22,7 +23,7 @@ import {
 } from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'tables' | 'bills' | 'sales' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
+type Tab = 'order' | 'tables' | 'bills' | 'sales' | 'menu' | 'printer' | 'gateway' | 'shift' | 'backup' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
@@ -79,6 +80,9 @@ export default function App() {
         <TabButton active={tab === 'printer'} onClick={() => setTab('printer')}>
           出單機
         </TabButton>
+        <TabButton active={tab === 'gateway'} onClick={() => setTab('gateway')}>
+          金流
+        </TabButton>
         <TabButton active={tab === 'shift'} onClick={() => setTab('shift')}>
           班別日結
         </TabButton>
@@ -125,6 +129,7 @@ export default function App() {
         {tab === 'sales' && <SalesPanel />}
         {tab === 'menu' && <MenuManager />}
         {tab === 'printer' && <PrinterSettings />}
+        {tab === 'gateway' && <GatewayPanel />}
         {tab === 'shift' && <ShiftPanel />}
         {tab === 'backup' && <BackupPanel />}
         {tab === 'status' && <StatusPanel info={info} error={infoError} />}

@@ -122,6 +122,9 @@ fn last_backup_age_hours(ctx: &Ctx) -> Option<f64> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PaymentMethodView {
+    /// 內部 ULID。結帳畫面用不到，但金流設定要拿它掛外鍵。
+    pub id: String,
+    /// 業務主鍵（CASH / CREDIT / …）。畫面與報表都認這一個。
     pub code: String,
     pub name: String,
     pub kind: String,
@@ -136,7 +139,7 @@ pub struct PaymentMethodView {
 pub async fn payment_methods(ctx: &Ctx) -> AppResult<Vec<PaymentMethodView>> {
     use sqlx::Row;
     let rows = sqlx::query(
-        "SELECT code, name, kind, allows_change, opens_drawer
+        "SELECT id, code, name, kind, allows_change, opens_drawer
            FROM payment_methods
           WHERE deleted_at IS NULL AND is_active = 1
           ORDER BY sort_order, code",
@@ -147,6 +150,7 @@ pub async fn payment_methods(ctx: &Ctx) -> AppResult<Vec<PaymentMethodView>> {
     Ok(rows
         .iter()
         .map(|r| PaymentMethodView {
+            id: r.get("id"),
             code: r.get("code"),
             name: r.get("name"),
             kind: r.get("kind"),

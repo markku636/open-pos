@@ -234,6 +234,7 @@ pub fn run() {
             commands::list_gateways,
             commands::upsert_gateway,
             commands::delete_gateway,
+            commands::gateway_providers,
             commands::sales_history,
             commands::day_report,
             commands::closed_days,

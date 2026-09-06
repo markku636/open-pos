@@ -37,6 +37,7 @@
 pub mod config;
 pub mod linepay;
 pub mod manual;
+pub mod newebpay;
 
 use serde::{Deserialize, Serialize};
 

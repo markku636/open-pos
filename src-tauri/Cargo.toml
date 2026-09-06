@@ -106,6 +106,8 @@ tracing-appender = "0.2"
 rust_xlsxwriter = { version = "0.92", default-features = false }
 hmac = "0.12.1"
 base64 = "0.23.1"
+aes = "0.8.4"
+cbc = { version = "0.1.2", features = ["alloc"] }
 
 [target.'cfg(windows)'.dependencies]
 # GetDriveType：偵測資料庫是否被放在網路磁碟上。

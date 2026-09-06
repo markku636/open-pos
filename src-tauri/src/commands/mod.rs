@@ -634,3 +634,11 @@ pub async fn upsert_gateway(
 pub async fn delete_gateway(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
     services::gateway::config::delete(&ctx, id).await
 }
+
+/// 有哪些金流商可以選、各自要哪些憑證欄位。
+///
+/// 不需要權限 —— 它回的是一張寫死在程式裡的表，沒有任何一家店的資料。
+#[tauri::command]
+pub fn gateway_providers() -> Vec<services::gateway::config::ProviderDef> {
+    services::gateway::config::providers()
+}
