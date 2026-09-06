@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
+  reportApi,
   shiftApi,
   type AppError,
   type DayReport,
@@ -248,7 +249,22 @@ export default function ShiftPanel() {
             </h2>
             <span className="font-mono text-xs text-slate-500">{day.zReportNo}</span>
             <button
-              className="ml-auto text-xs text-slate-500 hover:text-slate-300"
+              className="ml-auto rounded bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700"
+              disabled={busy}
+              title="給記帳的人。Excel 開起來中文不會亂碼，金額是數值可以直接加總"
+              onClick={() =>
+                void run(async () => {
+                  const dir = prompt('匯出到哪個資料夾？例如 D: 或一個現有的資料夾')?.trim()
+                  if (!dir) return
+                  const path = await reportApi.exportDayCsv(day.businessDate, dir)
+                  setError(`已匯出：${path}`)
+                })
+              }
+            >
+              匯出 CSV
+            </button>
+            <button
+              className="text-xs text-slate-500 hover:text-slate-300"
               onClick={() => setDay(null)}
             >
               關閉

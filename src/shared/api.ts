@@ -553,3 +553,14 @@ export const diagnosticsApi = {
   /** 存成一個 .txt（含 BOM，記事本開起來中文才不會變亂碼）。 */
   export: (dir: string) => transport.call<string>('export_diagnostics', { dir }),
 }
+
+/**
+ * 把某一天的日結匯出成 CSV。
+ *
+ * 讀的是日結當下存下來的快照，不是重算 —— 三個月後叫出來的數字必須跟
+ * 當時印出來的那張紙一模一樣。
+ */
+export const reportApi = {
+  exportDayCsv: (businessDate: string, dir: string) =>
+    transport.call<string>('export_day_csv', { businessDate, dir }),
+}

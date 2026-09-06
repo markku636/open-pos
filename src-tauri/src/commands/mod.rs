@@ -351,3 +351,15 @@ pub async fn diagnostics_report(ctx: State<'_, Ctx>) -> AppResult<String> {
 pub async fn export_diagnostics(ctx: State<'_, Ctx>, dir: String) -> AppResult<String> {
     services::diagnostics::export(&ctx, dir).await
 }
+
+/// 把某一天的日結匯出成 CSV。讀的是日結當下的快照，不是重算 ——
+/// 三個月後叫出來的數字必須跟當時印的那張紙一模一樣。
+#[tauri::command]
+pub async fn export_day_csv(
+    ctx: State<'_, Ctx>,
+    business_date: String,
+    dir: String,
+) -> AppResult<String> {
+    let report = services::shift::stored_day_report(&ctx, &business_date).await?;
+    services::report_export::export_day_csv(&ctx, &report, dir).await
+}

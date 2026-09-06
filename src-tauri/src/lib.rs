@@ -245,6 +245,7 @@ pub fn run() {
             commands::pending_restore,
             commands::diagnostics_report,
             commands::export_diagnostics,
+            commands::export_day_csv,
         ])
         .setup(|app| {
             use tauri::Manager;

@@ -40,7 +40,7 @@ const PERM_Z: &str = "report.z";
 
 // ---------------------------------------------------------------- 型別
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShiftView {
     pub id: String,
@@ -130,7 +130,7 @@ pub struct ShiftReport {
     pub voids: VoidTotals,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DayReport {
     pub business_date: String,
@@ -1103,6 +1103,25 @@ fn day_report_doc(
         sections,
         footer: Some("此報表為日結當下的快照，之後不再重算。".into()),
     }
+}
+
+/// 已經日結過的那一天的報表。
+///
+/// 讀的是**日結當下存下來的快照**，不是重算。這正是快照存在的理由：
+/// 三個月後把同一天的 Z 報表叫出來，數字必須跟當時印出來的那張紙一模一樣。
+pub async fn stored_day_report(ctx: &Ctx, business_date: &str) -> AppResult<DayReport> {
+    let json: Option<String> =
+        sqlx::query_scalar("SELECT summary_json FROM business_days WHERE business_date = ?1")
+            .bind(business_date)
+            .fetch_optional(ctx.db.reader())
+            .await?
+            .flatten();
+
+    let json = json.ok_or_else(|| {
+        AppError::NotFound(format!("{business_date} 還沒有日結，沒有報表可以匯出。"))
+    })?;
+    serde_json::from_str(&json)
+        .map_err(|e| AppError::Storage(format!("這一天的日結資料讀不懂：{e}")))
 }
 
 /// 今天的營業狀態，給畫面上的班別列用。

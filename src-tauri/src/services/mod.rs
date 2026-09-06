@@ -19,6 +19,7 @@ pub mod order;
 pub mod print_worker;
 pub mod printer;
 pub mod rbac;
+pub mod report_export;
 pub mod seed;
 pub mod sequence;
 pub mod shift;
