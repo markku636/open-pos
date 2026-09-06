@@ -56,7 +56,7 @@ local-ip-address = { version = "0.6", optional = true }
 # ---- 核心（GUI / headless / test 都要）----
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "sync", "net", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time", "sync", "net", "signal"] }
 # 只開 sqlite；postgres 藏在 feature 後（v2.0）。
 # tls：延續 db-kit 全案「rustls + ring、絕不碰 OpenSSL/aws-lc-sys」的硬性原則（Windows 免 NASM）。
 # v1 的 SQLite 用不到 TLS，但先寫上，避免日後加 PG 時有人隨手加 native-tls。
@@ -82,6 +82,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # 一律用 width_cjk()（Ambiguous = 2）而不是 width()：「※」「℃」「—」在 UAX #11
 # 是 Ambiguous，但在 CJK 語境（含所有 Big5 字型）它們是全形。判 1 會讓右欄整排對不齊。
 unicode-width = "0.2"
+# 出單機的中文編碼。ESC/POS 文字模式送的是 Big5 或 GB18030 的雙位元組，
+# 不是 UTF-8 —— 而 escpos crate 的 38 個 PageCode 裡完全沒有中文碼頁。
+encoding_rs = "0.8"
 once_cell = "1"
 parking_lot = "0.12"
 dirs = "6"

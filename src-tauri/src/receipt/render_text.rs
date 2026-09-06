@@ -67,6 +67,20 @@ impl PlainTextRenderer {
         s
     }
 
+    /// 把一組欄位排成幾行純文字。
+    ///
+    /// ESC/POS 的文字模式也要用它 —— 印表機沒有 tab stop 的概念，
+    /// 分欄對齊全靠我們自己補空白。兩個 renderer 共用同一段排版，
+    /// 預覽看到的欄位位置才會跟真的印出來的一樣。
+    pub fn render_columns_for(
+        &self,
+        cols: usize,
+        cells: &[crate::receipt::Cell],
+        weights: &[u8],
+    ) -> Vec<String> {
+        render_columns(cols, cells, weights)
+    }
+
     fn styled_line(&self, line: &str, cols: usize, style: &TextStyle) -> String {
         let text = if self.mark_styles {
             let mut t = line.to_string();
