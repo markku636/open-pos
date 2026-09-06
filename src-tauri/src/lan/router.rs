@@ -107,9 +107,41 @@ async fn serve_public_page(
         )
             .into_response());
     }
+    let path = req.uri().path().to_string();
     match files.oneshot(req).await {
-        Ok(res) => Ok(res.map(axum::body::Body::new)),
+        Ok(res) => {
+            let mut res = res.map(axum::body::Body::new);
+            if let Ok(v) = axum::http::HeaderValue::from_str(cache_control(&path)) {
+                res.headers_mut()
+                    .insert(axum::http::header::CACHE_CONTROL, v);
+            }
+            Ok(res)
+        }
         Err(_) => Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+    }
+}
+
+/// 靜態檔的快取策略 —— 這是廚房平板的**窮人版離線殼**。
+///
+/// 平板被 Android 回收之後重開時，如果主機剛好連不上，瀏覽器連 kds.html
+/// 都拿不到 —— 而 IndexedDB 裡存的那份看板，要有頁面才畫得出來。
+/// 沒有 Service Worker 可用（區網走 HTTP，不是 secure context），
+/// 所以只能靠 HTTP 快取。
+///
+/// * `assets/*` 檔名帶 hash，內容永不改變 → 一年不可變快取。
+/// * `*.html` 用 `stale-while-revalidate`：正常情況下每分鐘回主機確認一次，
+///   主機連不上時**照樣用舊的開起來**。這正是我們要的行為 ——
+///   一個開得起來但顯示「現在畫的是上一次的單」的畫面，
+///   比一個瀏覽器的錯誤頁有用得多。
+#[cfg(feature = "server")]
+fn cache_control(path: &str) -> &'static str {
+    if path.starts_with("/assets/") {
+        "public, max-age=31536000, immutable"
+    } else if path.ends_with(".html") || path == "/" {
+        "public, max-age=60, stale-while-revalidate=604800"
+    } else {
+        // favicon、app-icon：改了要看得到，但也不必每次都問。
+        "public, max-age=3600"
     }
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { loadBoard, saveBoard } from './offline'
 import type { KdsBoard } from '@/shared/api'
 
 /** 多久沒收到任何東西就認定連線死了。伺服器每 16 秒送一次心跳。 */
@@ -25,17 +26,42 @@ export type Connection = 'connecting' | 'live' | 'lost'
  *
  * 快照是自我修正的：斷線期間發生的任何變化，都會在重連後的第一份快照裡
  * 直接反映。增量重播則會讓錯誤永久累積。
+ *
+ * # 為什麼要存一份到 IndexedDB
+ *
+ * 平板被 Android 回收之後重開、或廚房 AP 剛好在重啟時，沒有快取的話廚師會
+ * 盯著「連線中…」，而爐子上的東西還在煮。所以先畫最後一份看板（標明是舊的），
+ * 連上之後自動蓋掉。
  */
 export function useBoard(): {
   board: KdsBoard | null
   connection: Connection
   /** 最後一次收到任何訊息（含心跳）到現在幾秒。 */
   silentFor: number
+  /** 畫面上這份是從本地快取來的（還沒連上）。 */
+  stale: boolean
   reconnect: () => void
 } {
   const [board, setBoard] = useState<KdsBoard | null>(null)
   const [connection, setConnection] = useState<Connection>('connecting')
   const [silentFor, setSilentFor] = useState(0)
+  const [stale, setStale] = useState(false)
+
+  // 開場先畫本地那一份。第一份推播進來就會蓋掉它。
+  useEffect(() => {
+    let live = true
+    void loadBoard().then((cached) => {
+      if (!live || !cached) return
+      setBoard((b) => {
+        if (b) return b
+        setStale(true)
+        return cached.board
+      })
+    })
+    return () => {
+      live = false
+    }
+  }, [])
 
   const lastMessageAt = useRef(Date.now())
   const source = useRef<EventSource | null>(null)
@@ -58,7 +84,10 @@ export function useBoard(): {
     es.addEventListener('board', (e) => {
       touch()
       try {
-        setBoard(JSON.parse((e as MessageEvent).data) as KdsBoard)
+        const next = JSON.parse((e as MessageEvent).data) as KdsBoard
+        setBoard(next)
+        setStale(false)
+        saveBoard(next)
       } catch {
         /* 壞掉的一筆略過，下一次快照會蓋掉它 */
       }
@@ -108,5 +137,5 @@ export function useBoard(): {
     connect()
   }, [connect])
 
-  return { board, connection, silentFor, reconnect }
+  return { board, connection, silentFor, stale, reconnect }
 }

@@ -224,6 +224,28 @@ async fn the_cashier_page_is_not_reachable_from_the_lan() {
         assert_eq!(res.status(), want, "{path} 的狀態碼不對");
     }
 
+    // ★ 快取標頭是廚房平板的窮人版離線殼。
+    //
+    //   平板被 Android 回收之後重開時，如果主機剛好連不上，瀏覽器連 kds.html
+    //   都拿不到 —— 而 IndexedDB 裡那份看板要有頁面才畫得出來。
+    //   `stale-while-revalidate` 讓它照樣開得起來。
+    for (path, want) in [
+        ("/kds.html", "stale-while-revalidate"),
+        ("/assets/kds-abc.js", "immutable"),
+    ] {
+        let app = open_pos::lan::router::build_with_ui(c.clone(), Some(dist.clone()));
+        let res = app
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let cc = res
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(cc.contains(want), "{path} 的 Cache-Control 是「{cc}」");
+    }
+
     // API 不受影響。
     let app = open_pos::lan::router::build_with_ui(c.clone(), Some(dist));
     let res = app

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { dequeue, enqueue, queued } from './offline'
 import { useBoard, type Connection } from './useBoard'
-import { kdsApi, type KdsLine, type KdsTicket } from '@/shared/api'
+import { kdsApi, type KdsLine, type KdsStatus, type KdsTicket } from '@/shared/api'
 
 /**
  * 廚房顯示。
@@ -19,13 +20,25 @@ import { kdsApi, type KdsLine, type KdsTicket } from '@/shared/api'
  * 這面板是**輔助顯示**。主機故障時，紙本出單機是唯一還會出單的東西；
  * 純 KDS、沒有出單機的店家沒有安全的降級路徑 —— 這句話寫在 README 裡，
  * 而不是藏起來。
+ *
+ * # 斷線時按的「完成」不會消失
+ *
+ * 那些點擊在這之前是直接不見的：畫面上打了勾、伺服器沒收到，於是那一項在
+ * 收銀端永遠停在製作中。現在它們進本地佇列，連上之後照按下去的順序重放。
+ * 重放安全，因為狀態只能往前推 —— 重複的那一次會被靜靜忽略。
  */
 export default function App() {
-  const { board, connection, silentFor, reconnect } = useBoard()
+  const { board, connection, silentFor, stale, reconnect } = useBoard()
   const [station, setStation] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const { pending, push, replay } = useOfflineQueue()
 
-  const tickets = board?.tickets ?? []
+  // 樂觀套用還沒送出去的那幾筆。廚師按下去就要看到勾 ——
+  // 不然他會以為沒按到，然後再按一次。
+  const tickets = (board?.tickets ?? []).map((t) => ({
+    ...t,
+    lines: t.lines.map((l) => (pending[l.id] ? { ...l, status: pending[l.id] } : l)),
+  }))
   const stations = Array.from(
     new Set(
       tickets.flatMap((t) => t.lines.map((l) => l.stationName)).filter((s): s is string => !!s),
@@ -39,20 +52,37 @@ export default function App() {
     : tickets
 
   const advance = async (line: KdsLine) => {
+    // 只往前推一格。廚師按的是「這一項好了」，不是選一個狀態。
+    const to = line.status === 'ready' ? 'served' : 'ready'
     setBusy(line.id)
     try {
-      // 只往前推一格。廚師按的是「這一項好了」，不是選一個狀態。
-      await kdsApi.advance(line.id, line.status === 'ready' ? 'served' : 'ready')
+      await kdsApi.advance(line.id, to)
     } catch {
-      /* 下一份快照會把真實狀態帶回來 —— 不必自己補救 */
+      // ★ 送不出去就存起來，不要讓這一下消失。
+      //   下一份快照會把伺服器的真實狀態帶回來，而佇列會在連上之後重放。
+      await push(line.id, to)
     } finally {
       setBusy(null)
     }
   }
 
+  // 連上就重放。放在這裡而不是 useBoard 裡，是因為重放是**寫入**——
+  // 而 useBoard 只負責讀。
+  useEffect(() => {
+    if (connection === 'live') void replay()
+  }, [connection, replay])
+
+  const pendingCount = Object.keys(pending).length
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
-      <ConnectionBanner state={connection} silentFor={silentFor} onRetry={reconnect} />
+      <ConnectionBanner
+        state={connection}
+        silentFor={silentFor}
+        stale={stale}
+        pending={pendingCount}
+        onRetry={reconnect}
+      />
 
       <header className="flex flex-wrap items-center gap-2 px-4 py-3">
         <h1 className="mr-2 text-xl font-semibold">廚房</h1>
@@ -97,13 +127,17 @@ export default function App() {
 function ConnectionBanner({
   state,
   silentFor,
+  stale,
+  pending,
   onRetry,
 }: {
   state: Connection
   silentFor: number
+  stale: boolean
+  pending: number
   onRetry: () => void
 }) {
-  if (state === 'live') return null
+  if (state === 'live' && pending === 0) return null
   const lost = state === 'lost'
   return (
     <div
@@ -115,8 +149,16 @@ function ConnectionBanner({
       <span>
         {lost
           ? `跟收銀機斷線了 —— 現在看到的單可能是舊的（已經 ${silentFor} 秒沒有訊息）`
-          : '連線中…'}
+          : stale
+            ? '連線中… 現在畫的是上一次的單'
+            : '連線中…'}
       </span>
+      {/* 還沒送出去的那幾下要說出來。廚師會想知道「我剛剛按的到底算不算」。 */}
+      {pending > 0 && (
+        <span className="rounded bg-black/30 px-3 py-1 text-base">
+          {pending} 個「完成」還沒送出去，連上就會補送
+        </span>
+      )}
       {lost && (
         <button
           className="ml-auto rounded bg-red-950/60 px-4 py-2 text-base hover:bg-red-950"
@@ -127,6 +169,79 @@ function ConnectionBanner({
       )}
     </div>
   )
+}
+
+/** 超過這個時間還沒送出去的「完成」就丟掉。跨過一個班之後它已經沒有意義。 */
+const STALE_ACTION_MS = 8 * 60 * 60 * 1000
+
+/**
+ * 斷線期間按的「完成」。
+ *
+ * `pending` 是 lineId → 目標狀態，畫面拿它做樂觀顯示；真正的順序存在
+ * IndexedDB 裡，因為平板重開之後那些點擊還是要送出去。
+ */
+function useOfflineQueue() {
+  const [pending, setPending] = useState<Record<string, KdsStatus>>({})
+  const replaying = useRef(false)
+
+  const refresh = useCallback(async () => {
+    const items = await queued()
+    const map: Record<string, KdsStatus> = {}
+    for (const q of items) map[q.lineId] = q.to
+    setPending(map)
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const push = useCallback(
+    async (lineId: string, to: KdsStatus) => {
+      await enqueue(lineId, to)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const replay = useCallback(async () => {
+    // 兩個 effect 同時觸發重放會把同一筆送兩次。送兩次本身是安全的
+    // （狀態只能往前推），但會讓佇列數字閃來閃去。
+    if (replaying.current) return
+    replaying.current = true
+    try {
+      for (const q of await queued()) {
+        // ★ 太舊的就丟掉。
+        //   隔了一個班之後才送出去的「完成」已經沒有意義，而它會讓橫幅上
+        //   那個數字永遠掛著 —— 一個永遠不會歸零的警告等於沒有警告。
+        if (Date.now() - q.at > STALE_ACTION_MS) {
+          dequeue(q.seq)
+          continue
+        }
+        try {
+          await kdsApi.advance(q.lineId, q.to)
+          dequeue(q.seq)
+        } catch (e) {
+          // ★ 「伺服器說不行」與「連不上伺服器」要分開處理。
+          //
+          //   那一項被退掉了、單被作廢了 —— 伺服器會回一個不可重試的錯誤，
+          //   而這一筆永遠不會成功。不丟掉的話它會把整個佇列堵死，
+          //   後面每一筆真正該送出去的「完成」都送不出去。
+          const err = e as { code?: string; retryable?: boolean }
+          if (typeof err?.code === 'string' && !err.retryable) {
+            dequeue(q.seq)
+            continue
+          }
+          // 連不上或伺服器暫時有問題：停在這裡保住順序，下次連上再繼續。
+          break
+        }
+      }
+      await refresh()
+    } finally {
+      replaying.current = false
+    }
+  }, [refresh])
+
+  return { pending, push, replay }
 }
 
 function StationTab({

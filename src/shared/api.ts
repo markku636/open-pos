@@ -640,6 +640,9 @@ export const discountApi = {
 
 // ---------------------------------------------------------------- 廚房顯示
 
+/** 廚房能推到的狀態。往回推會被伺服器靜靜忽略。 */
+export type KdsStatus = 'cooking' | 'ready' | 'served'
+
 export interface KdsLine {
   id: string
   name: string
@@ -679,7 +682,7 @@ export interface KdsBoard {
 export const kdsApi = {
   board: () => transport.call<KdsBoard>('kds_board'),
   /** 只能往前推：pending → cooking → ready → served。 */
-  advance: (lineId: string, to: 'cooking' | 'ready' | 'served') =>
+  advance: (lineId: string, to: KdsStatus) =>
     transport.call<KdsBoard>('kds_advance', { lineId, to }),
 }
 
