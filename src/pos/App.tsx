@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import AboutDialog from './AboutDialog'
 import BackupPanel from './BackupPanel'
+import BillsPanel from './BillsPanel'
 import MenuManager from './MenuManager'
 import OrderScreen, { type Seat } from './OrderScreen'
 import TableMap from './TableMap'
@@ -19,7 +20,7 @@ import {
 } from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'tables' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
+type Tab = 'order' | 'tables' | 'bills' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
@@ -62,6 +63,9 @@ export default function App() {
         </TabButton>
         <TabButton active={tab === 'tables'} onClick={() => setTab('tables')}>
           桌位
+        </TabButton>
+        <TabButton active={tab === 'bills'} onClick={() => setTab('bills')}>
+          帳單退款
         </TabButton>
         <TabButton active={tab === 'menu'} onClick={() => setTab('menu')}>
           商品維護
@@ -111,6 +115,7 @@ export default function App() {
             }}
           />
         )}
+        {tab === 'bills' && <BillsPanel />}
         {tab === 'menu' && <MenuManager />}
         {tab === 'printer' && <PrinterSettings />}
         {tab === 'shift' && <ShiftPanel />}

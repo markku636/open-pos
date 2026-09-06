@@ -643,7 +643,8 @@ pub async fn apply_discount(ctx: &Ctx, req: DiscountReq) -> AppResult<OrderView>
     get_order(ctx, &req.order_id).await
 }
 
-async fn load_actor(ctx: &Ctx, user_id: Option<&str>) -> AppResult<Option<rbac::Actor>> {
+/// 讀主管。退款與作廢都要用，所以留在 crate 內共用。
+pub(crate) async fn load_actor(ctx: &Ctx, user_id: Option<&str>) -> AppResult<Option<rbac::Actor>> {
     let Some(user_id) = user_id else {
         return Ok(None);
     };
@@ -1825,7 +1826,8 @@ async fn load_payment_method(
 /// **交易內不碰印表機。** 寫入池只有一條連線，一個卡住的 TCP 連線
 /// （缺紙的機器會 accept 連線但不 drain buffer）會讓全店的寫入排隊。
 /// 背景 worker 讀 outbox、負責重試與死信。
-async fn enqueue_print(
+/// 丟一張單進 outbox。交易內嚴禁外部 I/O，所以列印一律走這裡。
+pub(crate) async fn enqueue_print(
     uow: &mut SqliteUow,
     kind: &str,
     business_date: &str,

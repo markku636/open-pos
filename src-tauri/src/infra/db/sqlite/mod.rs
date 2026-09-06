@@ -50,6 +50,12 @@ const DEFAULT_MAX_READERS: u32 = 6;
 /// 取得寫入連線的等待上限。超時的最可能原因是「在交易裡又開了一個交易」。
 const WRITER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Clone **共用同一組連線池**（`SqlitePool` 本身是 Arc）。
+///
+/// 這是刻意的：換身分操作（登入之後切使用者、主管代為授權）要的是同一個
+/// 資料庫的另一個 `Ctx`，而不是第二組池 —— 寫入池只有一條連線，開第二組
+/// 就等於把「單一寫入者」這個前提悄悄拿掉。
+#[derive(Clone)]
 pub struct SqliteDb {
     writer: SqlitePool,
     reader: SqlitePool,

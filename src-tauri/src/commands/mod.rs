@@ -429,3 +429,32 @@ pub async fn preview_split(
 ) -> AppResult<services::order::SplitPreview> {
     services::order::preview_split(&ctx, order_id, split).await
 }
+
+// ---------------------------------------------------------------- 退款
+
+/// 找帳單（退款前要先找到原單）。
+#[tauri::command]
+pub async fn find_bills(
+    ctx: State<'_, Ctx>,
+    req: services::refund::FindBillsReq,
+) -> AppResult<Vec<services::refund::BillView>> {
+    services::refund::find_bills(&ctx, req).await
+}
+
+/// 退款。需要 `payment.refund` 權限，一定要選原因並留下簽核紀錄。
+#[tauri::command]
+pub async fn refund(
+    ctx: State<'_, Ctx>,
+    req: services::refund::RefundReq,
+) -> AppResult<services::refund::RefundResult> {
+    services::refund::refund(&ctx, req).await
+}
+
+/// 原因代碼。作廢／折扣／退款的下拉選單靠它。
+#[tauri::command]
+pub async fn list_reasons(
+    ctx: State<'_, Ctx>,
+    kind: String,
+) -> AppResult<Vec<services::reason::ReasonCode>> {
+    services::reason::list_reasons(&ctx, kind).await
+}

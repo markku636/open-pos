@@ -82,6 +82,21 @@ pub fn day_report_csv(report: &DayReport) -> String {
         (-report.voids.voided_amount).to_string(),
     ]));
 
+    // 退款獨立一列，不併進銷售 —— 老闆對帳時要看得到「賣了多少」與
+    // 「退了多少」兩個數字，相減之後只留一個就再也查不出來。
+    out.push_str(&r(vec![
+        cell("退款"),
+        cell("全部"),
+        report.refunds.count.to_string(),
+        (-report.refunds.amount).to_string(),
+    ]));
+    out.push_str(&r(vec![
+        cell("退款"),
+        cell("其中現金"),
+        "0".into(),
+        (-report.refunds.cash_amount).to_string(),
+    ]));
+
     for sh in &report.shifts {
         out.push_str(&r(vec![
             cell("班別現金差異"),
@@ -130,7 +145,7 @@ pub async fn export_day_csv(ctx: &Ctx, report: &DayReport, dir: String) -> AppRe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::shift::{ItemLine, PaymentTotal, SalesTotals, VoidTotals};
+    use crate::services::shift::{ItemLine, PaymentTotal, RefundTotals, SalesTotals, VoidTotals};
 
     fn sample() -> DayReport {
         DayReport {
@@ -154,6 +169,11 @@ mod tests {
                 amount: 215,
             }],
             voids: VoidTotals::default(),
+            refunds: RefundTotals {
+                count: 1,
+                amount: 60,
+                cash_amount: 60,
+            },
             shifts: vec![],
             top_items: vec![ItemLine {
                 // 品名裡的逗號是真實情況（「A餐, 附湯」），不處理會讓整份錯位。

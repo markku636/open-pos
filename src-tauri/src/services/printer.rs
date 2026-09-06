@@ -621,7 +621,9 @@ pub async fn fan_out(ctx: &Ctx) -> AppResult<usize> {
 
         let kind: String = row.get("kind");
         let doc_type = match kind.as_str() {
-            "print.receipt" => "receipt",
+            // 退款單走收據那條路：它印在櫃檯那台、優先度跟收據一樣，
+            // 而且客人站在旁邊等著簽名。
+            "print.receipt" | "print.refund" => "receipt",
             "print.shift_report" => "shift_report",
             "print.day_report" => "day_report",
             _ => "kitchen",

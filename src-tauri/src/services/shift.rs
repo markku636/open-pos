@@ -103,11 +103,28 @@ pub struct CashSummary {
     pub cash_sales: i64,
     pub paid_in: i64,
     pub paid_out: i64,
-    /// 應有現金 = 開班準備金 + 現金銷售 + 收入 − 支出。
+    /// 現金退款。錢是從抽屜拿出去的，所以要扣。
+    pub cash_refunds: i64,
+    /// 應有現金 = 開班準備金 + 現金銷售 + 收入 − 支出 − 現金退款。
     pub expected: i64,
     pub counted: Option<i64>,
     /// 正數 = 溢收，負數 = 短少。
     pub variance: Option<i64>,
+}
+
+/// 退款。
+///
+/// **不併進 `sales` 而是獨立一欄**：作廢是「這筆生意沒發生」，退款是
+/// 「發生了、然後退回來」。營業額要看得到原來賣了多少，也要看得到退了多少 ——
+/// 把兩個數字相減之後只留一個，就再也查不出是哪一種。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundTotals {
+    pub count: i64,
+    pub amount: i64,
+    /// 其中用現金退的。**關班的應有現金要扣掉它**，否則每一筆現金退款
+    /// 都會變成一筆假的短少，而收銀員會被冤枉。
+    pub cash_amount: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -128,6 +145,7 @@ pub struct ShiftReport {
     pub payments: Vec<PaymentTotal>,
     pub cash: CashSummary,
     pub voids: VoidTotals,
+    pub refunds: RefundTotals,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +157,7 @@ pub struct DayReport {
     pub sales: SalesTotals,
     pub payments: Vec<PaymentTotal>,
     pub voids: VoidTotals,
+    pub refunds: RefundTotals,
     /// 各班的現金差異。日結時最該被看的一欄。
     pub shifts: Vec<ShiftView>,
     pub top_items: Vec<ItemLine>,
@@ -153,6 +172,14 @@ pub struct ItemLine {
 }
 
 // ---------------------------------------------------------------- 共用
+
+/// 現在是哪一個營業日。
+///
+/// 「今天」不等於日曆上的今天：`business_day_cutoff` 預設 05:00，
+/// 所以凌晨兩點賣出去的那一杯還算前一天的生意。
+pub async fn today(ctx: &Ctx, now: &Stamp) -> AppResult<String> {
+    Ok(store_id_and_date(ctx, now).await?.1)
+}
 
 async fn store_id_and_date(ctx: &Ctx, now: &Stamp) -> AppResult<(String, String)> {
     let r = sqlx::query(
@@ -450,6 +477,14 @@ pub async fn record_cash_movement(ctx: &Ctx, req: CashMovementReq) -> AppResult<
 
 // ---------------------------------------------------------------- 統計
 
+/// 營業額。
+///
+/// ★ **退過款的帳單仍然算在營業額裡。**
+///
+/// 那筆生意確實發生了 —— 東西賣出去、發票開了、稅也報了。退款是另一件事，
+/// 在報表上是獨立一欄。把退過款的單從營業額裡拿掉，會讓「今天賣了多少」
+/// 這個數字在退款發生的當下**憑空縮水一整張單**，而縮水的金額跟退款金額
+/// 還不一樣（退 20 元卻少掉整張 60 元的單）。
 async fn sales_totals(uow: &mut SqliteUow, filter: &Filter<'_>) -> AppResult<SalesTotals> {
     let sql = format!(
         "SELECT COUNT(*) AS bills, COALESCE(SUM(subtotal), 0) AS subtotal,
@@ -459,7 +494,7 @@ async fn sales_totals(uow: &mut SqliteUow, filter: &Filter<'_>) -> AppResult<Sal
                 COALESCE(SUM(sales_amount), 0) AS sales,
                 COALESCE(SUM(tax_amount), 0) AS tax,
                 COALESCE(SUM(grand_total), 0) AS total
-           FROM bills WHERE status = 'settled' AND {}",
+           FROM bills WHERE status IN ('settled', 'partially_refunded', 'refunded') AND {}",
         filter.sql
     );
     let r = filter.bind(sqlx::query(&sql)).fetch_one(uow.conn()).await?;
@@ -475,11 +510,16 @@ async fn sales_totals(uow: &mut SqliteUow, filter: &Filter<'_>) -> AppResult<Sal
     })
 }
 
+/// 各種付款方式收了多少。
+///
+/// ★ **退過款的收款仍然算進來。** 錢確實進過抽屜，退出去是另一筆動作 ——
+/// 而應有現金已經另外扣過現金退款了。兩邊都扣就會扣兩次，於是每一筆
+/// 全額現金退款都會讓關班短少兩倍的金額。
 async fn payment_totals(uow: &mut SqliteUow, filter: &Filter<'_>) -> AppResult<Vec<PaymentTotal>> {
     let sql = format!(
         "SELECT method_code_snapshot AS code, method_name_snapshot AS name,
                 COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
-           FROM payments WHERE status = 'captured' AND {}
+           FROM payments WHERE status IN ('captured', 'refunded') AND {}
           GROUP BY method_code_snapshot, method_name_snapshot
           ORDER BY amount DESC",
         filter.sql
@@ -494,6 +534,25 @@ async fn payment_totals(uow: &mut SqliteUow, filter: &Filter<'_>) -> AppResult<V
             amount: r.get("amount"),
         })
         .collect())
+}
+
+async fn refund_totals(uow: &mut SqliteUow, filter: &Filter<'_>) -> AppResult<RefundTotals> {
+    // 現金與否看的是**原本那筆收款**的方式：退款一律原路退回，
+    // 所以刷卡收的錢不會從抽屜出去。
+    let sql = format!(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(r.amount), 0) AS amount,
+                COALESCE(SUM(CASE WHEN p.method_code_snapshot = 'cash' THEN r.amount ELSE 0 END), 0)
+                  AS cash
+           FROM refunds r LEFT JOIN payments p ON p.id = r.payment_id
+          WHERE r.{}",
+        filter.sql
+    );
+    let r = filter.bind(sqlx::query(&sql)).fetch_one(uow.conn()).await?;
+    Ok(RefundTotals {
+        count: r.get("n"),
+        amount: r.get("amount"),
+        cash_amount: r.get("cash"),
+    })
 }
 
 async fn void_totals(uow: &mut SqliteUow, business_date: &str) -> AppResult<VoidTotals> {
@@ -546,6 +605,7 @@ async fn cash_summary(
     uow: &mut SqliteUow,
     shift: &ShiftView,
     payments: &[PaymentTotal],
+    cash_refunds: i64,
 ) -> AppResult<CashSummary> {
     let cash_sales: i64 = payments
         .iter()
@@ -574,12 +634,16 @@ async fn cash_summary(
 
     // 找零已經在 payments.amount 之外（amount 是沖銷金額，不含找回去的錢），
     // 所以這裡不需要再扣一次。
-    let expected = shift.opening_float + cash_sales + paid_in - paid_out;
+    // 現金退款是實際從抽屜拿出去的錢。少了這一項，每退一次款關班就短少一次，
+    // 而數錢的人找不出原因 —— 這種「系統說我少錢」的經驗只要發生兩三次，
+    // 店員就會開始不信任盤點結果。
+    let expected = shift.opening_float + cash_sales + paid_in - paid_out - cash_refunds;
     Ok(CashSummary {
         opening_float: shift.opening_float,
         cash_sales,
         paid_in,
         paid_out,
+        cash_refunds,
         expected,
         counted: shift.counted_cash,
         variance: shift.cash_variance,
@@ -590,13 +654,15 @@ async fn build_shift_report(uow: &mut SqliteUow, shift: &ShiftView) -> AppResult
     let filter = Filter::shift(&shift.id);
     let sales = sales_totals(uow, &filter).await?;
     let payments = payment_totals(uow, &filter).await?;
-    let cash = cash_summary(uow, shift, &payments).await?;
+    let refunds = refund_totals(uow, &filter).await?;
+    let cash = cash_summary(uow, shift, &payments, refunds.cash_amount).await?;
     let voids = void_totals(uow, &shift.business_date).await?;
     Ok(ShiftReport {
         shift_no: shift.shift_no.clone(),
         business_date: shift.business_date.clone(),
         opened_at: shift.opened_at.clone(),
         closed_at: shift.closed_at.clone(),
+        refunds,
         sales,
         payments,
         cash,
@@ -742,6 +808,7 @@ pub async fn close_business_day(ctx: &Ctx) -> AppResult<DayReport> {
     let sales = sales_totals(&mut uow, &filter).await?;
     let payments = payment_totals(&mut uow, &filter).await?;
     let voids = void_totals(&mut uow, &business_date).await?;
+    let refunds = refund_totals(&mut uow, &Filter::day(&business_date)).await?;
     let top_items = top_items(&mut uow, &business_date).await?;
 
     let sql =
@@ -849,6 +916,7 @@ pub async fn close_business_day(ctx: &Ctx) -> AppResult<DayReport> {
         sales,
         payments,
         voids,
+        refunds,
         shifts,
         top_items,
     };
@@ -1016,6 +1084,7 @@ fn shift_report_doc(
             ("現金銷售", report.cash.cash_sales),
             ("現金收入", report.cash.paid_in),
             ("現金支出", -report.cash.paid_out),
+            ("現金退款", -report.cash.cash_refunds),
             ("應有現金", report.cash.expected),
             ("實際盤點", report.cash.counted.unwrap_or(0)),
             ("差異", report.cash.variance.unwrap_or(0)),
@@ -1027,6 +1096,17 @@ fn shift_report_doc(
             vec![
                 ("退掉品項", report.voids.voided_lines),
                 ("金額", -report.voids.voided_amount),
+            ],
+        ));
+    }
+    // 退款要在交接單上看得見。交班的兩個人對數字時，最需要解釋的就是它。
+    if report.refunds.count > 0 {
+        sections.push(section(
+            "退款",
+            vec![
+                ("筆數", report.refunds.count),
+                ("金額", -report.refunds.amount),
+                ("其中現金", -report.refunds.cash_amount),
             ],
         ));
     }
@@ -1067,6 +1147,16 @@ fn day_report_doc(
                 .map(|p| (format!("{}（{}）", p.name, p.count), money(p.amount)))
                 .collect(),
         });
+    }
+    if report.refunds.count > 0 {
+        sections.push(section(
+            "退款",
+            vec![
+                ("筆數", report.refunds.count),
+                ("金額", -report.refunds.amount),
+                ("其中現金", -report.refunds.cash_amount),
+            ],
+        ));
     }
     if !report.shifts.is_empty() {
         sections.push(crate::receipt::templates::ReportSection {

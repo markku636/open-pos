@@ -737,3 +737,83 @@ export const demoApi = {
   /** 一鍵示範資料。裝起來看到一片空白的人多半不會先建十個品項才試用。 */
   seed: () => transport.call<DemoResult>('seed_demo'),
 }
+
+// ---------------------------------------------------------------- 原因代碼
+
+export interface ReasonCode {
+  id: string
+  code: string
+  name: string
+  /** 選了這個原因就一定要補一句說明。 */
+  requiresNote: boolean
+}
+
+/** kind：void / discount / comp / refund / cash_in / cash_out。 */
+export const reasonApi = {
+  list: (kind: string) => transport.call<ReasonCode[]>('list_reasons', { kind }),
+}
+
+// ---------------------------------------------------------------- 退款
+
+export interface BillPayment {
+  id: string
+  methodCode: string
+  methodName: string
+  amount: number
+  refunded: number
+  refundable: number
+}
+
+export interface Bill {
+  id: string
+  billNo: string
+  orderNo: string
+  businessDate: string
+  settledAt: string | null
+  status: string
+  grandTotal: number
+  refundedTotal: number
+  refundable: number
+  /** 分帳的那一份：「2／4」。整單結帳是 null。 */
+  splitLabel: string | null
+  payments: BillPayment[]
+}
+
+export interface RefundResult {
+  billNo: string
+  amount: number
+  methodName: string
+  refundedTotal: number
+  refundable: number
+  billStatus: string
+}
+
+export const refundApi = {
+  /** 找帳單。給單號片段就跨日找 —— 客人拿著三天前的收據回來是常態。 */
+  findBills: (opts?: { businessDate?: string | null; billNo?: string | null }) =>
+    transport.call<Bill[]>('find_bills', {
+      req: { businessDate: opts?.businessDate ?? null, billNo: opts?.billNo ?? null },
+    }),
+  /**
+   * 退款。一定要選原因，而且**原路退回** ——
+   * 刷卡收的錢用現金退是最經典的一種內神通外鬼。
+   */
+  refund: (input: {
+    billId: string
+    paymentId?: string | null
+    amount: number
+    reasonId: string
+    note?: string | null
+  }) =>
+    transport.call<RefundResult>('refund', {
+      req: {
+        billId: input.billId,
+        paymentId: input.paymentId ?? null,
+        amount: input.amount,
+        reasonId: input.reasonId,
+        note: input.note ?? null,
+        approverId: null,
+        idemKey: newIdemKey(),
+      },
+    }),
+}
