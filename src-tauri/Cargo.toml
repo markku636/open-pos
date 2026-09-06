@@ -104,6 +104,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # 診斷包要附最近 N 天的 rolling log —— 地端 + 離線 + 非技術使用者，沒有 log 就無法重現任何 bug。
 tracing-appender = "0.2"
 rust_xlsxwriter = { version = "0.92", default-features = false }
+hmac = "0.12.1"
+base64 = "0.23.1"
 
 [target.'cfg(windows)'.dependencies]
 # GetDriveType：偵測資料庫是否被放在網路磁碟上。

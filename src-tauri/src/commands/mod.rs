@@ -611,3 +611,26 @@ pub async fn pick_folder(app: tauri::AppHandle) -> AppResult<Option<String>> {
             .map_err(|e| crate::error::AppError::Internal(format!("開不了資料夾選單：{e}")))?;
     Ok(picked.map(|p| p.to_string()))
 }
+
+// ---------------------------------------------------------------- 金流設定
+
+/// 金流設定清單。**憑證只回「有沒有設定」與末四碼，不回明文。**
+#[tauri::command]
+pub async fn list_gateways(
+    ctx: State<'_, Ctx>,
+) -> AppResult<Vec<services::gateway::config::GatewayView>> {
+    services::gateway::config::list(&ctx).await
+}
+
+#[tauri::command]
+pub async fn upsert_gateway(
+    ctx: State<'_, Ctx>,
+    input: services::gateway::config::GatewayInput,
+) -> AppResult<services::gateway::config::GatewayView> {
+    services::gateway::config::upsert(&ctx, input).await
+}
+
+#[tauri::command]
+pub async fn delete_gateway(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::gateway::config::delete(&ctx, id).await
+}

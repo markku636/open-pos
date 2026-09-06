@@ -231,6 +231,9 @@ pub fn run() {
             commands::insight,
             #[cfg(feature = "gui")]
             commands::pick_folder,
+            commands::list_gateways,
+            commands::upsert_gateway,
+            commands::delete_gateway,
             commands::sales_history,
             commands::day_report,
             commands::closed_days,
