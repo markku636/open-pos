@@ -138,7 +138,11 @@ pub async fn board(ctx: &Ctx) -> AppResult<KdsBoard> {
 
 fn waited(opened_at: &str, now: &Stamp) -> i64 {
     chrono::DateTime::parse_from_rfc3339(opened_at)
-        .map(|t| (now.at - t.with_timezone(&chrono::Utc)).num_seconds().max(0))
+        .map(|t| {
+            (now.at - t.with_timezone(&chrono::Utc))
+                .num_seconds()
+                .max(0)
+        })
         .unwrap_or(0)
 }
 

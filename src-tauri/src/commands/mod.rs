@@ -382,3 +382,29 @@ pub async fn void_order(
 ) -> AppResult<services::order::OrderView> {
     services::order::void_order(&ctx, req).await
 }
+
+// ---------------------------------------------------------------- 桌位
+
+#[tauri::command]
+pub async fn list_tables(ctx: State<'_, Ctx>) -> AppResult<Vec<services::table::TableView>> {
+    services::table::list_tables(&ctx).await
+}
+
+#[tauri::command]
+pub async fn upsert_table(
+    ctx: State<'_, Ctx>,
+    input: services::table::TableInput,
+) -> AppResult<services::table::TableView> {
+    services::table::upsert_table(&ctx, input).await
+}
+
+#[tauri::command]
+pub async fn delete_table(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::table::delete_table(&ctx, id).await
+}
+
+/// 清桌。只有在沒有未結帳的單時才允許 —— 否則它會變成一個把帳丟掉的按鈕。
+#[tauri::command]
+pub async fn close_table(ctx: State<'_, Ctx>, table_id: String) -> AppResult<()> {
+    services::table::close_table(&ctx, table_id).await
+}

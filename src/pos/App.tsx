@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import AboutDialog from './AboutDialog'
 import BackupPanel from './BackupPanel'
 import MenuManager from './MenuManager'
-import OrderScreen from './OrderScreen'
+import OrderScreen, { type Seat } from './OrderScreen'
+import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
 import ShiftPanel from './ShiftPanel'
 import {
@@ -18,12 +19,15 @@ import {
 } from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
+type Tab = 'order' | 'tables' | 'menu' | 'printer' | 'shift' | 'backup' | 'status'
 
 /** 收銀機主畫面。 */
 export default function App() {
   const [tab, setTab] = useState<Tab>('order')
   const [about, setAbout] = useState(false)
+  // 目前正在服務的那一桌。放在最上層是因為它跨兩個分頁：
+  // 在「桌位」點一桌，動作發生在「點餐」。
+  const [seat, setSeat] = useState<Seat | null>(null)
   // 版本資訊在「系統狀態」與「關於」兩處都要用，所以在最上層抓一次。
   // 兩邊各抓一次不只是浪費，還會出現「兩個畫面顯示不同版本」這種
   // 讓人完全無法診斷的狀況。
@@ -54,6 +58,10 @@ export default function App() {
         <span className="mr-4 font-semibold">{APP_NAME}</span>
         <TabButton active={tab === 'order'} onClick={() => setTab('order')}>
           點餐
+          {seat && <span className="ml-1.5 text-emerald-300">{seat.table.code}</span>}
+        </TabButton>
+        <TabButton active={tab === 'tables'} onClick={() => setTab('tables')}>
+          桌位
         </TabButton>
         <TabButton active={tab === 'menu'} onClick={() => setTab('menu')}>
           商品維護
@@ -90,7 +98,19 @@ export default function App() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-hidden p-4">
-        {tab === 'order' && <OrderScreen />}
+        {/* 兩個分頁都保持掛載：切到「桌位」看一眼再切回來，購物車不能不見。
+            內用點到一半跑去查別桌多少錢是每天都在發生的事。 */}
+        <div className={tab === 'order' ? 'h-full' : 'hidden'}>
+          <OrderScreen seat={seat} onLeaveSeat={() => setSeat(null)} />
+        </div>
+        {tab === 'tables' && (
+          <TableMap
+            onPick={(table, guestCount) => {
+              setSeat({ table, guestCount })
+              setTab('order')
+            }}
+          />
+        )}
         {tab === 'menu' && <MenuManager />}
         {tab === 'printer' && <PrinterSettings />}
         {tab === 'shift' && <ShiftPanel />}

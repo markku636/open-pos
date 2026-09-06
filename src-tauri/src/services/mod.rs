@@ -24,3 +24,4 @@ pub mod report_export;
 pub mod seed;
 pub mod sequence;
 pub mod shift;
+pub mod table;

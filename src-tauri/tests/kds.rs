@@ -45,7 +45,9 @@ async fn env(tag: &str) -> Env {
     let db = SqliteDb::open(&layout.db_file(), Some(2)).await.unwrap();
     let now = Stamp::now();
     let mut uow = db.begin_write().await.unwrap();
-    open_pos::services::seed::apply(&mut uow, &now).await.unwrap();
+    open_pos::services::seed::apply(&mut uow, &now)
+        .await
+        .unwrap();
     uow.commit().await.unwrap();
     let actor = open_pos::services::seed::default_actor(&db).await.unwrap();
 
@@ -130,7 +132,13 @@ async fn a_served_line_leaves_the_board() {
     demo::seed_demo_menu(&e.ctx).await.unwrap();
     let o = e.order_with(&["珍珠奶茶", "滷肉飯"]).await;
 
-    let bubble = o.lines.iter().find(|l| l.name == "珍珠奶茶").unwrap().id.clone();
+    let bubble = o
+        .lines
+        .iter()
+        .find(|l| l.name == "珍珠奶茶")
+        .unwrap()
+        .id
+        .clone();
     kds::advance(&e.ctx, bubble.clone(), "ready".into())
         .await
         .unwrap();

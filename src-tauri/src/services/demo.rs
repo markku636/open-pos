@@ -115,6 +115,29 @@ pub async fn seed_demo_menu(ctx: &Ctx) -> AppResult<bool> {
         return Ok(false);
     }
 
+    // 幾張桌子。沒有桌位的話「內用」在畫面上就只是一個沒有用的按鈕。
+    for code in ["A1", "A2", "A3", "A4", "B1", "B2"] {
+        crate::services::table::upsert_table(
+            ctx,
+            crate::services::table::TableInput {
+                id: None,
+                code: code.to_string(),
+                name: None,
+                seats: Some(if code.starts_with('B') { 6 } else { 4 }),
+                area_name: Some(
+                    if code.starts_with('B') {
+                        "包廂"
+                    } else {
+                        "大廳"
+                    }
+                    .to_string(),
+                ),
+                is_active: Some(true),
+            },
+        )
+        .await?;
+    }
+
     for (order, group) in MENU.iter().enumerate() {
         let cat = menu::upsert_category(
             ctx,

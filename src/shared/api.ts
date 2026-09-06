@@ -638,3 +638,43 @@ export const kdsApi = {
   advance: (lineId: string, to: 'cooking' | 'ready' | 'served') =>
     transport.call<KdsBoard>('kds_advance', { lineId, to }),
 }
+
+// ---------------------------------------------------------------- 桌位
+
+export interface TableSession {
+  id: string
+  guestCount: number
+  openedAt: string
+  /** 這一桌目前累積多少錢。店員最常被問的問題。 */
+  total: number
+  orderCount: number
+  seatedSeconds: number
+}
+
+export interface DiningTable {
+  id: string
+  code: string
+  name?: string | null
+  areaName?: string | null
+  seats: number
+  isActive: boolean
+  /** 有值代表這一桌現在有人。 */
+  session: TableSession | null
+}
+
+export interface TableInput {
+  id?: string | null
+  code: string
+  name?: string | null
+  seats?: number
+  areaName?: string | null
+  isActive?: boolean
+}
+
+export const tableApi = {
+  list: () => transport.call<DiningTable[]>('list_tables'),
+  upsert: (input: TableInput) => transport.call<DiningTable>('upsert_table', { input }),
+  remove: (id: string) => transport.call<void>('delete_table', { id }),
+  /** 清桌。只有在沒有未結帳的單時才允許 —— 否則它會變成一個把帳丟掉的按鈕。 */
+  close: (tableId: string) => transport.call<void>('close_table', { tableId }),
+}

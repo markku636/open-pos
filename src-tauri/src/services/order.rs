@@ -967,17 +967,33 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
     )
     .await?;
 
-    // 桌位釋放。
+    // 桌位釋放 —— **只有在這是那一桌最後一張未結的單時**。
+    //
+    // 一桌可以有很多張單（分開結帳、續攤、加點開新單）。看到「結完帳就關檯」
+    // 很直覺，但它會把同桌其他還沒結的單留在一個已關的 session 上：那些單
+    // 從桌位圖上消失，帳卻還在。桌位圖上看不到的帳等於收不到的錢。
     if let Some(sid) = &head.table_session_id {
-        sqlx::query(
-            "UPDATE table_sessions SET status = 'closed', closed_at = ?2, closed_by = ?3, updated_at = ?2
-              WHERE id = ?1",
+        let still_open: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM orders
+              WHERE table_session_id = ?1 AND id <> ?2
+                AND status NOT IN ('settled', 'voided')",
         )
         .bind(sid)
-        .bind(now.iso())
-        .bind(&ctx.actor.user_id)
-        .execute(uow.conn())
+        .bind(&req.order_id)
+        .fetch_one(uow.conn())
         .await?;
+        if still_open == 0 {
+            sqlx::query(
+                "UPDATE table_sessions SET status = 'closed', closed_at = ?2, closed_by = ?3,
+                                           updated_at = ?2
+                  WHERE id = ?1",
+            )
+            .bind(sid)
+            .bind(now.iso())
+            .bind(&ctx.actor.user_id)
+            .execute(uow.conn())
+            .await?;
+        }
     }
 
     enqueue_receipt(&mut uow, ctx, &store, &req.order_id, &bill_no, change, &now).await?;

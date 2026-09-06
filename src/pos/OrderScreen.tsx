@@ -8,11 +8,18 @@ import {
   orderApi,
   type AppError,
   type Channel,
+  type DiningTable,
   type Item,
   type MenuTree,
   type Order,
 } from '@/shared/api'
 import { formatMoney } from '@/shared/money'
+
+/** 從桌位圖帶過來的一桌。`guestCount` 只在這一桌還沒開檯時用得到。 */
+export interface Seat {
+  table: DiningTable
+  guestCount: number
+}
 
 /**
  * 點餐畫面。
@@ -22,8 +29,21 @@ import { formatMoney } from '@/shared/money'
  *
  * 觸控考量：品項按鈕做得大（最小 88px 高），因為收銀員是站著用食指戳，
  * 而且尖峰時間手上還拿著東西。
+ *
+ * # 桌位
+ *
+ * 從桌位圖點進來時會帶著一張桌子（`seat`）。內用的加點動線是
+ * 「桌位圖 → 點這一桌 → 直接接著點」，所以進來要**自動接上那一桌
+ * 已經開著的單**，而不是開一張新的 —— 一桌兩張單在結帳時才會被發現，
+ * 那時客人已經站在櫃檯前了。
  */
-export default function OrderScreen() {
+export default function OrderScreen({
+  seat,
+  onLeaveSeat,
+}: {
+  seat?: Seat | null
+  onLeaveSeat?: () => void
+} = {}) {
   const [tree, setTree] = useState<MenuTree | null>(null)
   const [order, setOrder] = useState<Order | null>(null)
   const [channel, setChannel] = useState<Channel>('takeout')
@@ -33,6 +53,27 @@ export default function OrderScreen() {
   const [paying, setPaying] = useState(false)
   /** null = 沒開；'' = 整單折扣；其他 = 那一行的折扣。 */
   const [discounting, setDiscounting] = useState<string | null>(null)
+
+  // 從桌位圖帶進來的那一桌。接上它已經開著的單，沒有的話留白等第一個品項
+  // 才真的開單 —— 「按了桌子就產生一張空單」會在桌位圖上留下一堆金額 0
+  // 的幽靈桌，而那些桌看起來跟真的有客人一模一樣。
+  useEffect(() => {
+    if (!seat) {
+      // 離開桌位時把那一桌的單也從畫面上收走。留著它的話，下一筆外帶的
+      // 第一個品項會被加到剛剛那一桌上 —— 而畫面上完全看不出來。
+      setOrder((o) => (o?.tableId ? null : o))
+      return
+    }
+    setChannel('dine_in')
+    setError(null)
+    orderApi
+      .listOpen()
+      .then((open) => {
+        const existing = open.find((o) => o.tableId === seat.table.id)
+        setOrder(existing ?? null)
+      })
+      .catch((e: AppError) => setError(e.message))
+  }, [seat])
 
   useEffect(() => {
     menuApi
@@ -68,7 +109,8 @@ export default function OrderScreen() {
   const addItem = async (item: Item) => {
     let target = order
     if (!target || target.status === 'settled') {
-      target = await run(() => orderApi.open(channel))
+      const tableId = channel === 'dine_in' ? (seat?.table.id ?? null) : null
+      target = await run(() => orderApi.open(channel, tableId, seat?.guestCount ?? 1))
       if (!target) return
       setOrder(target)
     }
@@ -155,20 +197,36 @@ export default function OrderScreen() {
       {/* 右：購物車 */}
       <aside className="flex w-96 shrink-0 flex-col rounded bg-slate-900/50">
         <div className="flex items-center gap-1 border-b border-slate-800 p-3">
-          {(['dine_in', 'takeout'] as Channel[]).map((c) => (
+          {seat ? (
+            // 桌號要一直在畫面上。「點到別桌去」是內用最貴的錯誤 ——
+            // 它會讓兩桌的帳同時錯掉，而且通常在結帳時才被發現。
             <button
-              key={c}
-              className={`rounded px-3 py-1.5 text-sm ${
-                channel === c ? 'bg-slate-700' : 'text-slate-400 hover:text-slate-200'
-              }`}
-              // 已經開單之後不讓改通路：服務費與價格都跟著它，
-              // 中途改會讓已送廚房的品項金額跳動。
-              disabled={!!order && order.lines.length > 0}
-              onClick={() => setChannel(c)}
+              className="flex items-baseline gap-2 rounded bg-emerald-900/50 px-3 py-1.5 text-sm hover:bg-emerald-900/80"
+              title="離開這一桌"
+              onClick={() => onLeaveSeat?.()}
             >
-              {c === 'dine_in' ? '內用' : '外帶'}
+              <span className="text-base font-semibold">{seat.table.code}</span>
+              <span className="text-xs text-emerald-300/70">
+                {order?.guestCount ?? seat.guestCount} 位
+              </span>
+              <span className="text-xs text-slate-500">✕</span>
             </button>
-          ))}
+          ) : (
+            (['dine_in', 'takeout'] as Channel[]).map((c) => (
+              <button
+                key={c}
+                className={`rounded px-3 py-1.5 text-sm ${
+                  channel === c ? 'bg-slate-700' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                // 已經開單之後不讓改通路：服務費與價格都跟著它，
+                // 中途改會讓已送廚房的品項金額跳動。
+                disabled={!!order && order.lines.length > 0}
+                onClick={() => setChannel(c)}
+              >
+                {c === 'dine_in' ? '內用' : '外帶'}
+              </button>
+            ))
+          )}
           <span className="ml-auto font-mono text-xs text-slate-500">
             {order?.orderNo ?? '尚未開單'}
           </span>
@@ -182,7 +240,9 @@ export default function OrderScreen() {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           {!order || order.lines.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-600">點左邊的商品開始</p>
+            <p className="py-8 text-center text-sm text-slate-600">
+              {seat ? `${seat.table.code} —— 點左邊的商品開始` : '點左邊的商品開始'}
+            </p>
           ) : (
             order.lines.map((l) => (
               <div key={l.id} className="group mb-1 flex items-start gap-2 text-sm">
@@ -256,7 +316,10 @@ export default function OrderScreen() {
                 onClick={() => {
                   if (!confirm('要作廢整張單嗎？\n\n已經送到廚房的品項會印一張取消單。')) return
                   void run(() => discountApi.voidOrder(order.id, order.rev)).then((r) => {
-                    if (r) setOrder(null)
+                    if (r) {
+                      setOrder(null)
+                      onLeaveSeat?.()
+                    }
                   })
                 }}
               >
@@ -296,6 +359,9 @@ export default function OrderScreen() {
             setPaying(false)
             setOrder(null)
             setError(null)
+            // 結完帳就離開這一桌，否則下一位客人的第一個品項會被加到
+            // 剛剛那一桌上。
+            onLeaveSeat?.()
             // 找零要停留在畫面上讓收銀員數錢，不要一閃而過。
             if (result.change > 0) {
               setError(`已結帳 ${result.billNo}　找零 ${formatMoney(result.change)}`)
