@@ -15,6 +15,7 @@ pub mod backup;
 pub mod backup_worker;
 pub mod demo;
 pub mod diagnostics;
+pub mod dining;
 pub mod gateway;
 pub mod kds;
 pub mod locale;

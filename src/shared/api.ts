@@ -1268,3 +1268,46 @@ export const localeApi = {
   get: () => transport.call<Locale>('get_locale'),
   set: (locale: Locale) => transport.call<void>('set_locale', { locale }),
 }
+
+/**
+ * 吃到飽 / 無限暢飲方案。
+ *
+ * 方案**本身就是一個商品**（`itemId`），人頭費就是那個商品點 N 份 ——
+ * 所以人頭分級（大人 / 小孩）直接用該商品的規格，平假日不同價直接用價格規則。
+ * 設計依據見 docs/dining-modes.md。
+ */
+export interface DiningPlan {
+  id: string
+  /** 有價的那個商品。人頭費 = 這個商品 × 人數。 */
+  itemId: string
+  itemName: string
+  name: string
+  /** 用餐時限（分鐘）。0 = 不限時。**到期只提醒，不加價、不擋單。** */
+  limitMinutes: number
+  /** 提前多久先提醒。 */
+  noticeMinutes: number
+  printMembersOnBill: boolean
+  isActive: boolean
+  /** 方案涵蓋的品項與分類，吃這些不另外收錢。 */
+  memberItems: string[]
+  memberCategories: string[]
+}
+
+export interface DiningPlanInput {
+  id?: string | null
+  itemId: string
+  name: string
+  limitMinutes?: number
+  noticeMinutes?: number
+  printMembersOnBill?: boolean
+  isActive?: boolean
+  memberItems?: string[]
+  memberCategories?: string[]
+}
+
+export const diningApi = {
+  list: () => transport.call<DiningPlan[]>('list_dining_plans'),
+  upsert: (input: DiningPlanInput) =>
+    transport.call<DiningPlan>('upsert_dining_plan', { input }),
+  remove: (id: string) => transport.call<void>('delete_dining_plan', { id }),
+}

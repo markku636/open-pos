@@ -382,9 +382,12 @@ pub async fn add_lines(ctx: &Ctx, req: AddLinesReq) -> AppResult<OrderView> {
     ensure_rev(&head, req.expected_rev)?;
 
     let mut line_no = next_line_no(&mut uow, &req.order_id).await?;
+    // 這桌套用哪個吃到飽方案（沒有就是 None，一切照舊）。
+    let plan = crate::services::dining::active_plan_for_order(&mut uow, &req.order_id).await?;
+
     let mut added: std::collections::HashSet<String> = Default::default();
     for l in &req.lines {
-        let resolved = resolve_line(&mut uow, l).await?;
+        let resolved = resolve_line(&mut uow, l, plan.as_ref()).await?;
         added.insert(insert_line(&mut uow, &req.order_id, line_no, l, &resolved, &now).await?);
         line_no += 1;
     }
@@ -1325,9 +1328,17 @@ struct ResolvedLine {
     /// 改到別的分區，已經送進廚房的那張單不該跟著跳到另一台機器上；
     /// 補印時也必須印回原來那一台。
     station_id: Option<String>,
+    /// 這一行的來源（一般品項 / 方案本身 / 方案內 0 元品項）。
+    origin: crate::services::dining::LineOrigin,
+    /// 屬於哪個吃到飽方案。方案結束後仍留著 —— 帳要看得出當時是吃到飽。
+    dining_plan_id: Option<String>,
 }
 
-async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLine> {
+async fn resolve_line(
+    uow: &mut SqliteUow,
+    l: &NewLine,
+    plan: Option<&crate::services::dining::DiningPlan>,
+) -> AppResult<ResolvedLine> {
     let r = sqlx::query(
         "SELECT i.name, i.short_name, i.base_price, i.tax_code, i.category_id, i.sold_out_until,
                 c.name AS category_name,
@@ -1370,6 +1381,31 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
             unit_price + v.get::<i64, _>("price_delta")
         };
         variant_name = Some(v.get::<String, _>("name"));
+    }
+
+    // ── 吃到飽：方案內的品項是 0 元 ──────────────────────────────
+    //
+    // ★ 它仍然是一行，只是不收錢。廚房要知道要做什麼，所以不能不建立這一行；
+    //   Airレジ 也是這樣做的（手持機上印「（放）」與 ¥0）。
+    //
+    // ★ 規格的加價也一起歸零。「大杯珍奶」在吃到飽方案裡不該因為是大杯就收 10 元 ——
+    //   客人付的是吃到飽的錢，不是單杯的錢。
+    //
+    // ★ 不在方案裡的照常收錢。那就是加價品（和牛 +200、酒水另計），
+    //   而它是**預設行為**不是特例 —— 沒有一行程式碼在處理它。
+    let category_id: Option<String> = r.get("category_id");
+    let mut origin = crate::services::dining::LineOrigin::Item;
+    let mut dining_plan_id = None;
+    if let Some(p) = plan {
+        if p.covers(&l.item_id, category_id.as_deref()) {
+            unit_price = 0;
+            origin = crate::services::dining::LineOrigin::PlanMember;
+            dining_plan_id = Some(p.id.clone());
+        } else if l.item_id == p.item_id {
+            // 方案本身。人頭費就是這一行 × 人數。
+            origin = crate::services::dining::LineOrigin::Plan;
+            dining_plan_id = Some(p.id.clone());
+        }
     }
 
     // ★ 選項要真的是**這個品項提供的**。
@@ -1496,6 +1532,8 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
         unit_price,
         modifiers,
         station_id: r.get("station_id"),
+        origin,
+        dining_plan_id,
     })
 }
 
@@ -1535,9 +1573,10 @@ async fn insert_line(
                                   category_id_snapshot, category_name_snapshot,
                                   unit_price_snapshot, tax_code_snapshot,
                                   qty_milli, unit_price, note, station_id, kitchen_status,
+                                  line_origin, dining_plan_id,
                                   created_by, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?11, ?14, ?16,
-                 'pending', NULL, ?15, ?15)",
+                 'pending', ?17, ?18, NULL, ?15, ?15)",
     )
     .bind(&line_id)
     .bind(order_id)
@@ -1555,6 +1594,8 @@ async fn insert_line(
     .bind(&l.note)
     .bind(now.iso())
     .bind(&r.station_id)
+    .bind(r.origin.as_str())
+    .bind(&r.dining_plan_id)
     .execute(uow.conn())
     .await?;
 

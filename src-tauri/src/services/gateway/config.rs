@@ -337,17 +337,6 @@ pub struct ProviderDef {
     pub fields: Vec<CredentialField>,
 }
 
-fn provider_note(code: &str) -> &'static str {
-    match code {
-        "manual" => {
-            "刷卡機是銀行給的那一台。收銀員刷完把授權碼抄進 POS，這裡只記帳。             不需要網路，也不需要任何憑證。"
-        }
-        "linepay" => "掃客人手機出示的付款碼。需要 LINE Pay 商家帳號。",
-        "newebpay" => "信用卡。需要跟藍新簽約後拿到的商店代號與兩把金鑰。",
-        _ => "",
-    }
-}
-
 /// 讀出憑證。**只給服務層內部用**，不經過任何指令回到前端。
 pub async fn credentials(ctx: &Ctx, gateway_id: &str) -> AppResult<BTreeMap<String, String>> {
     Ok(sqlx::query_scalar::<_, Option<String>>(

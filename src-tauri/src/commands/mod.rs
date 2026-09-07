@@ -635,6 +635,27 @@ pub async fn delete_gateway(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
     services::gateway::config::delete(&ctx, id).await
 }
 
+/// 吃到飽 / 無限暢飲方案。
+#[tauri::command]
+pub async fn list_dining_plans(
+    ctx: State<'_, Ctx>,
+) -> AppResult<Vec<services::dining::DiningPlan>> {
+    services::dining::list(&ctx).await
+}
+
+#[tauri::command]
+pub async fn upsert_dining_plan(
+    ctx: State<'_, Ctx>,
+    input: services::dining::PlanInput,
+) -> AppResult<services::dining::DiningPlan> {
+    services::dining::upsert(&ctx, input).await
+}
+
+#[tauri::command]
+pub async fn delete_dining_plan(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
+    services::dining::delete(&ctx, id).await
+}
+
 /// 有哪些金流商可以選、各自要哪些憑證欄位。
 ///
 /// 不需要權限 —— 它回的是一張寫死在程式裡的表，沒有任何一家店的資料。
