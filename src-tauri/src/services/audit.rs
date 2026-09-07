@@ -278,8 +278,10 @@ pub struct AuditRow {
     pub at: String,
     pub business_date: Option<String>,
     pub actor_name: Option<String>,
+    /// 動作代碼（`void_after_settle`、`refund`…）。**只回代碼，不回中文** ——
+    /// 代碼是資料，顯示成哪一國的字是畫面的事；後端不知道現在站在收銀機前面
+    /// 的是誰、他讀哪一種語言，翻譯要在知道的那一端做。
     pub action: String,
-    pub action_label: String,
     pub entity_type: String,
     pub entity_id: String,
     /// 人看得懂的對象（單號、帳單號、品名）。
@@ -293,8 +295,9 @@ pub struct AuditRow {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditGroup {
+    /// 分組的代碼。依動作分組時是動作代碼（`refund`），依操作者分組時是人名。
+    /// 兩種都原樣回去 —— 前者由畫面查字典翻，後者本來就是店家自己打的字。
     pub key: String,
-    pub label: String,
     pub count: i64,
     pub amount: i64,
 }
@@ -360,14 +363,12 @@ pub async fn query(ctx: &crate::ctx::Ctx, q: AuditQuery) -> AppResult<AuditRepor
     let truncated = rows.len() as i64 > MAX_ROWS;
     let mut out = Vec::with_capacity(rows.len().min(MAX_ROWS as usize));
     for r in rows.iter().take(MAX_ROWS as usize) {
-        let action: String = r.get("action");
         out.push(AuditRow {
             id: r.get("id"),
             at: r.get("created_at"),
             business_date: r.get("business_date"),
             actor_name: r.get("actor_name"),
-            action_label: action_label(&action).to_string(),
-            action,
+            action: r.get("action"),
             entity_type: r.get("entity_type"),
             entity_id: r.get("entity_id"),
             // new_value 是 JSON 字串（多半就是一個單號）。剝掉引號讓它像人話。
@@ -433,33 +434,10 @@ async fn group_by(
             let key: Option<String> = r.get("k");
             let key = key.unwrap_or_else(|| "—".into());
             AuditGroup {
-                label: action_label(&key).to_string(),
                 key,
                 count: r.get("n"),
                 amount: r.get("amount"),
             }
         })
         .collect())
-}
-
-/// 動作代碼的中文。認不得的就原樣回去 —— 顯示 `foo` 比顯示「其他」有用。
-fn action_label(code: &str) -> &str {
-    match code {
-        "create" => "建立",
-        "update" => "修改",
-        "delete" => "刪除",
-        "void" => "作廢",
-        "void_after_settle" => "結帳後作廢",
-        "discount" => "折扣",
-        "comp" => "招待",
-        "price_override" => "改價",
-        "refund" => "退款",
-        "reprint" => "補印",
-        "drawer_open" => "開錢箱",
-        "shift_open" => "開班",
-        "shift_close" => "關班",
-        "settings_change" => "改設定",
-        "restore" => "還原備份",
-        other => other,
-    }
 }

@@ -306,37 +306,36 @@ fn apply_discount(base: i64, kind: &DiscountKind, max_amount: Option<i64>) -> i6
 
 fn validate(input: &PricingInput) -> AppResult<()> {
     if !(0..10_000).contains(&input.tax_rate_bp) {
-        return Err(AppError::Validation(format!(
-            "稅率 {} bp 不在合理範圍（0 ~ 9999）",
-            input.tax_rate_bp
-        )));
+        return Err(AppError::Validation(
+            format!("稅率 {} bp 不在合理範圍（0 ~ 9999）", input.tax_rate_bp).into(),
+        ));
     }
     if !(0..100_000).contains(&input.service_charge_rate_bp) {
-        return Err(AppError::Validation(format!(
-            "服務費費率 {} bp 不在合理範圍",
-            input.service_charge_rate_bp
-        )));
+        return Err(AppError::Validation(
+            format!(
+                "服務費費率 {} bp 不在合理範圍",
+                input.service_charge_rate_bp
+            )
+            .into(),
+        ));
     }
     for (i, l) in input.lines.iter().enumerate() {
         if l.qty_milli <= 0 {
-            return Err(AppError::Validation(format!(
-                "第 {} 行的數量必須大於 0",
-                i + 1
-            )));
+            return Err(AppError::Validation(
+                format!("第 {} 行的數量必須大於 0", i + 1).into(),
+            ));
         }
         if l.unit_price.0 < 0 {
-            return Err(AppError::Validation(format!(
-                "第 {} 行的單價不能是負數",
-                i + 1
-            )));
+            return Err(AppError::Validation(
+                format!("第 {} 行的單價不能是負數", i + 1).into(),
+            ));
         }
         for d in &l.discounts {
             if let DiscountKind::Percent(bp) = d.kind {
                 if !(0..=10_000).contains(&bp) {
-                    return Err(AppError::Validation(format!(
-                        "第 {} 行的折扣 {bp} bp 不在 0 ~ 10000 之間",
-                        i + 1
-                    )));
+                    return Err(AppError::Validation(
+                        format!("第 {} 行的折扣 {bp} bp 不在 0 ~ 10000 之間", i + 1).into(),
+                    ));
                 }
             }
         }

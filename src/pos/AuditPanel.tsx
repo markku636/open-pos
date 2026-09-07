@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { auditApi, type AppError, type AuditGroup, type AuditReport } from '@/shared/api'
-import { useT } from '@/shared/i18n'
+import { useT, type Msg } from '@/shared/i18n'
 import { ui } from '@/shared/locales/nav'
-import { reports } from '@/shared/locales/reports'
+import { auditActions, reports } from '@/shared/locales/reports'
 import { formatMoney } from '@/shared/money'
 import { hhmm } from '@/shared/time'
 
@@ -22,7 +22,24 @@ import { hhmm } from '@/shared/time'
  *
  * 統計是另外查的，不是拿明細那幾百筆算的。一份「只統計到前 500 筆」的
  * 防弊報表比沒有更糟，因為它看起來是完整的。
+ *
+ * # 動作名稱在這一端翻
+ *
+ * 後端回的是代碼（`refund`、`void_after_settle`），不是「退款」。
+ * 一個封閉的列舉要顯示成哪一國的字是畫面的事 —— 後端不知道現在是誰在看，
+ * 而字典本來就已經在這一端了，翻在那邊等於維護兩份。
  */
+/**
+ * 動作代碼 → 目前語言的字。
+ *
+ * 認不得的代碼**原樣顯示** —— 看到 `foo` 至少查得出來是哪一個動作漏了翻譯，
+ * 顯示「其他」就查不出來了。
+ */
+function actionLabel(t: (m: Msg) => string, code: string): string {
+  const msg = (auditActions as Record<string, Msg | undefined>)[code]
+  return msg ? t(msg) : code
+}
+
 export default function AuditPanel() {
   const t = useT()
   const [report, setReport] = useState<AuditReport | null>(null)
@@ -92,9 +109,7 @@ export default function AuditPanel() {
             className="rounded bg-sky-900 px-3 py-1.5 text-sm hover:bg-sky-800"
             onClick={() => setAction(null)}
           >
-            {t(reports.filterOnly, {
-              label: report?.byAction.find((g) => g.key === action)?.label ?? action,
-            })}
+            {t(reports.filterOnly, { label: actionLabel(t, action) })}
           </button>
         )}
         <span className="ml-auto pb-1.5 text-right">
@@ -121,9 +136,11 @@ export default function AuditPanel() {
             <Groups
               title={t(reports.byAction)}
               groups={report.byAction}
+              labelOf={(k) => actionLabel(t, k)}
               active={action}
               onPick={(k) => setAction((a) => (a === k ? null : k))}
             />
+            {/* 依操作者分組的 key 是人名，店家自己打的字，不查字典。 */}
             <Groups title={t(reports.byActor)} groups={report.byActor} />
           </div>
 
@@ -161,7 +178,7 @@ export default function AuditPanel() {
                           )}
                           {hhmm(r.at)}
                         </td>
-                        <td className="px-3 py-1.5">{r.actionLabel}</td>
+                        <td className="px-3 py-1.5">{actionLabel(t, r.action)}</td>
                         <td className="px-3 py-1.5 font-mono text-xs text-slate-400">
                           {r.label ?? r.entityId.slice(-6)}
                         </td>
@@ -195,11 +212,14 @@ export default function AuditPanel() {
 function Groups({
   title,
   groups,
+  labelOf,
   active,
   onPick,
 }: {
   title: string
   groups: AuditGroup[]
+  /** 把分組的 key 翻成人看得懂的字。省略＝key 本身就是人話（人名）。 */
+  labelOf?: (key: string) => string
   active?: string | null
   onPick?: (key: string) => void
 }) {
@@ -221,7 +241,9 @@ function Groups({
                 disabled={!onPick}
                 onClick={() => onPick?.(g.key)}
               >
-                <span className="w-28 shrink-0 truncate text-left">{g.label}</span>
+                <span className="w-28 shrink-0 truncate text-left">
+                  {labelOf ? labelOf(g.key) : g.key}
+                </span>
                 <span className="w-10 shrink-0 text-right text-xs text-slate-500">
                   {g.count}
                 </span>

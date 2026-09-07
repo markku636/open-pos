@@ -559,13 +559,18 @@ async fn a_whole_business_day_adds_up() {
     assert_eq!(i.hours[0].total, 596);
 
     // 招待與折扣分開列 —— 老闆對「送出去的東西」與「少收的錢」容忍度不同。
+    // 回的是代碼（comp / discount），前面那句「招待：」由畫面查字典補上。
     assert!(
-        i.discounts.iter().any(|d| d.label.starts_with("招待：")),
+        i.discounts
+            .iter()
+            .any(|d| d.code.as_deref() == Some("comp")),
         "招待要單獨看得到：{:?}",
         i.discounts
     );
     assert!(
-        i.discounts.iter().any(|d| d.label.starts_with("折扣：")),
+        i.discounts
+            .iter()
+            .any(|d| d.code.as_deref() == Some("discount")),
         "{:?}",
         i.discounts
     );
@@ -576,22 +581,26 @@ async fn a_whole_business_day_adds_up() {
     let line_void = i
         .voids
         .iter()
-        .find(|v| v.label.starts_with("退點："))
+        .find(|v| v.code.as_deref() == Some("void_item"))
         .unwrap();
     assert_eq!(line_void.amount, 25, "{:?}", i.voids);
     let order_void = i
         .voids
         .iter()
-        .find(|v| v.label.starts_with("整單作廢："))
+        .find(|v| v.code.as_deref() == Some("void_order"))
         .unwrap();
     assert_eq!(order_void.amount, 85, "{:?}", i.voids);
 
     // 內用（②⑦）與外帶都要在。⑦ 是內用，所以內用不會是 0。
-    let dine_in = i.channels.iter().find(|c| c.label == "內用").unwrap();
+    let dine_in = i
+        .channels
+        .iter()
+        .find(|c| c.code.as_deref() == Some("dine_in"))
+        .unwrap();
     assert_eq!(dine_in.amount, 121 + 77, "內用的營業額不對");
 
     // 品項排行看得到牛肉麵。
-    assert!(i.items.iter().any(|x| x.label == "牛肉麵"));
+    assert!(i.items.iter().any(|x| x.name.as_deref() == Some("牛肉麵")));
 
     e.ctx.db.close().await;
 }

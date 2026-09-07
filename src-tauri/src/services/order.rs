@@ -29,7 +29,9 @@ use crate::core::money::{Money, RoundingPolicy};
 use crate::core::pricing::{self, Channel, LineInput, PricingInput, PricingOutput, QTY_SCALE};
 use crate::ctx::Ctx;
 use crate::error::{AppError, AppResult};
+use crate::i18n::Msg;
 use crate::infra::db::sqlite::SqliteUow;
+use crate::msg;
 use crate::receipt::templates::{self, TicketData, TicketLine, TicketReason};
 use crate::receipt::PaperWidth;
 use crate::services::audit::{self, AuditAction, AuditEntry};
@@ -542,10 +544,9 @@ pub async fn apply_discount(ctx: &Ctx, req: DiscountReq) -> AppResult<OrderView>
         _ => (PERM_ORDER_DISCOUNT, "整單折扣"),
     };
     if !["percent", "amount", "comp"].contains(&req.kind.as_str()) {
-        return Err(AppError::Validation(format!(
-            "不認得的折扣種類：{}",
-            req.kind
-        )));
+        return Err(AppError::Validation(
+            format!("不認得的折扣種類：{}", req.kind).into(),
+        ));
     }
     if req.kind == "percent" && !(1..=10_000).contains(&req.value) {
         return Err(AppError::Validation(
@@ -868,10 +869,13 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
         .map(|p| p.amount.max(p.tendered.unwrap_or(0)))
         .sum();
     if offered < due {
-        return Err(AppError::Validation(format!(
-            "收款金額 {offered} 元不足應收的 {due} 元，還差 {} 元",
-            due - offered
-        )));
+        return Err(AppError::Validation(
+            format!(
+                "收款金額 {offered} 元不足應收的 {due} 元，還差 {} 元",
+                due - offered
+            )
+            .into(),
+        ));
     }
 
     let bill_no =
@@ -973,10 +977,9 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
             (tendered - applied).max(0)
         } else {
             if tendered > applied {
-                return Err(AppError::Validation(format!(
-                    "「{}」不能找零，金額請改成剛好 {applied} 元",
-                    method.name
-                )));
+                return Err(AppError::Validation(
+                    format!("「{}」不能找零，金額請改成剛好 {applied} 元", method.name).into(),
+                ));
             }
             0
         };
@@ -1011,7 +1014,9 @@ pub async fn settle(ctx: &Ctx, req: SettleReq) -> AppResult<SettleResult> {
     }
 
     if remaining > 0 {
-        return Err(AppError::Validation(format!("還差 {remaining} 元沒有付清")));
+        return Err(AppError::Validation(
+            format!("還差 {remaining} 元沒有付清").into(),
+        ));
     }
 
     sqlx::query("UPDATE bills SET paid_total = ?2, change_total = ?3 WHERE id = ?1")
@@ -1341,7 +1346,7 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
     let sold_out: Option<String> = r.get("sold_out_until");
     if sold_out.is_some() {
         let name: String = r.get("name");
-        return Err(AppError::Validation(format!("「{name}」已售完")));
+        return Err(AppError::Validation(format!("「{name}」已售完").into()));
     }
 
     let mut unit_price: i64 = r.get("base_price");
@@ -1393,11 +1398,14 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
         .ok_or_else(|| AppError::NotFound("這個選項已經停用了".into()))?;
 
         if m.get::<i64, _>("offered") == 0 {
-            return Err(AppError::Validation(format!(
-                "「{}」沒有提供「{}」這個選項。請重新整理菜單再試一次。",
-                r.get::<String, _>("name"),
-                m.get::<String, _>("name")
-            )));
+            return Err(AppError::Validation(
+                format!(
+                    "「{}」沒有提供「{}」這個選項。請重新整理菜單再試一次。",
+                    r.get::<String, _>("name"),
+                    m.get::<String, _>("name")
+                )
+                .into(),
+            ));
         }
         modifiers.push((
             m.get::<String, _>("id"),
@@ -1434,10 +1442,9 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
         let picked = modifiers.iter().filter(|m| m.4 == gid).count() as i64;
 
         if g.get::<String, _>("selection_type") == "single" && picked > 1 {
-            return Err(AppError::Validation(format!(
-                "「{}」只能選一個。",
-                g.get::<String, _>("name")
-            )));
+            return Err(AppError::Validation(
+                format!("「{}」只能選一個。", g.get::<String, _>("name")).into(),
+            ));
         }
 
         let min: i64 = g.get("min_select");
@@ -1462,11 +1469,14 @@ async fn resolve_line(uow: &mut SqliteUow, l: &NewLine) -> AppResult<ResolvedLin
                 "single".to_string(),
             )),
             None => {
-                return Err(AppError::Validation(format!(
-                    "「{}」要選「{}」。",
-                    r.get::<String, _>("name"),
-                    g.get::<String, _>("name")
-                )))
+                return Err(AppError::Validation(
+                    format!(
+                        "「{}」要選「{}」。",
+                        r.get::<String, _>("name"),
+                        g.get::<String, _>("name")
+                    )
+                    .into(),
+                ))
             }
         }
     }
@@ -2306,9 +2316,9 @@ async fn plan_split(
                 return Err(AppError::Validation("分帳金額要大於 0".into()));
             }
             if amount > remaining {
-                return Err(AppError::Validation(format!(
-                    "這張單只剩 {remaining} 元沒結，收不了 {amount} 元"
-                )));
+                return Err(AppError::Validation(
+                    format!("這張單只剩 {remaining} 元沒結，收不了 {amount} 元").into(),
+                ));
             }
             ensure_same_split_mode(uow, order_id, done, "by_amount", None).await?;
             Ok(SplitPlan {
@@ -2414,28 +2424,43 @@ async fn ensure_same_split_mode(
     let mode: String = row.get("split_mode");
     let count: i64 = row.get("split_count");
     if mode != want {
-        return Err(AppError::Conflict(format!(
-            "這張單已經用「{}」分過帳了，不能中途改成「{}」。",
-            split_mode_label(&mode),
-            split_mode_label(want)
-        )));
+        // 這兩句話是**組出來的句子**，不是表格裡的一個欄位，所以它們留在後端 ——
+        // 但文字本身搬進 i18n 目錄，三種語言擺在一起，少一種編譯就不會過。
+        //
+        // 這裡就 render 而不是把 `Msg` 帶出去，是因為 `AppError` 目前吃的還是
+        // `String`（一百多個建構點，不是這一條任務該一次改完的東西）。
+        // 用 `current()` 而不是 `Display`：`Display` 固定是中文，那等於在這裡
+        // 就把語言寫死。等 `AppError` 改成帶 `Msg`（見 `i18n.rs` 的模組說明），
+        // 這一行只要把 `.render(...)` 拿掉。
+        return Err(AppError::Conflict(
+            Msg::keyed(split_mode_label(&mode), Vec::new()).render(crate::i18n::current()),
+        ));
     }
     if let (Some(want), true) = (want_count, count > 0) {
         if want != count {
-            return Err(AppError::Conflict(format!(
-                "這張單一開始是分 {count} 份，不能改成 {want} 份。"
-            )));
+            return Err(AppError::Conflict(
+                msg!("order.split_count_locked", count = count, want = want)
+                    .render(crate::i18n::current()),
+            ));
         }
     }
     Ok(())
 }
 
+/// 這一種分法對應的訊息鍵。
+///
+/// 以前這裡回的是中文（「平分」「分項」），再 `format!` 進句子裡。那樣的句子
+/// 翻不了 —— 就算外面那一句進了目錄，中文的分法名還是會原封不動留在英文與
+/// 日文的句子裡。`Msg` 的參數只放資料（數字、代碼），不放已經寫死語言的字。
+///
+/// 所以現在**分法的名字跟整句話一起**放在 i18n 目錄裡（`order.split_mode_locked_*`），
+/// 這個函式只負責挑出是哪一種分法。四種分法各一條句子，翻譯的人看得到整句。
 fn split_mode_label(mode: &str) -> &'static str {
     match mode {
-        "even" => "平分",
-        "by_item" => "分項",
-        "by_amount" => "指定金額",
-        _ => "整單",
+        "even" => "order.split_mode_locked_even",
+        "by_item" => "order.split_mode_locked_by_item",
+        "by_amount" => "order.split_mode_locked_by_amount",
+        _ => "order.split_mode_locked_whole",
     }
 }
 
@@ -2494,4 +2519,28 @@ async fn save_idempotent<T: Serialize>(
     .execute(uow.conn())
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Locale;
+
+    /// 分法的訊息鍵一定要真的在目錄裡。
+    ///
+    /// 打錯一個字不會編譯失敗，也不會 panic —— `render` 查不到就把鍵名原樣
+    /// 吐出來，於是收銀員在螢幕上看到的是 `order.split_mode_locked_even`。
+    /// 那是一種只有店家會遇到、我們自己永遠不會遇到的壞法。
+    #[test]
+    fn every_split_mode_has_a_real_sentence_in_all_three_languages() {
+        for mode in ["even", "by_item", "by_amount", "none", "沒見過的分法"] {
+            let key = split_mode_label(mode);
+            let m = Msg::keyed(key, Vec::new());
+            for l in Locale::ALL {
+                let s = m.render(l);
+                assert_ne!(s, key, "{key} 在 {} 查不到，畫面上會出現鍵名", l.as_str());
+                assert!(!s.is_empty(), "{key} 在 {} render 出空字串", l.as_str());
+            }
+        }
+    }
 }

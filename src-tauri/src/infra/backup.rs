@@ -128,10 +128,9 @@ impl BackupBucket {
 pub async fn validate_backup_file(path: &Path) -> AppResult<()> {
     let head = read_head(path, SQLITE_MAGIC.len()).await?;
     if head != SQLITE_MAGIC {
-        return Err(AppError::Validation(format!(
-            "{} 不是 SQLite 資料庫檔",
-            path.display()
-        )));
+        return Err(AppError::Validation(
+            format!("{} 不是 SQLite 資料庫檔", path.display()).into(),
+        ));
     }
 
     let mut conn = SqliteConnectOptions::new()
@@ -141,18 +140,18 @@ pub async fn validate_backup_file(path: &Path) -> AppResult<()> {
         .disable_statement_logging()
         .connect()
         .await
-        .map_err(|e| AppError::Validation(format!("備份檔開不起來：{e}")))?;
+        .map_err(|e| AppError::Validation(format!("備份檔開不起來：{e}").into()))?;
 
     let result: String = sqlx::query_scalar("PRAGMA integrity_check")
         .fetch_one(&mut conn)
         .await
-        .map_err(|e| AppError::Validation(format!("完整性檢查失敗：{e}")))?;
+        .map_err(|e| AppError::Validation(format!("完整性檢查失敗：{e}").into()))?;
     let _ = conn.close().await;
 
     if !result.eq_ignore_ascii_case("ok") {
-        return Err(AppError::Validation(format!(
-            "備份檔完整性檢查未通過：{result}"
-        )));
+        return Err(AppError::Validation(
+            format!("備份檔完整性檢查未通過：{result}").into(),
+        ));
     }
     Ok(())
 }
@@ -165,7 +164,7 @@ async fn read_head(path: &Path, n: usize) -> AppResult<Vec<u8>> {
     let mut buf = vec![0u8; n];
     f.read_exact(&mut buf)
         .await
-        .map_err(|e| AppError::Validation(format!("檔案太小或無法讀取：{e}")))?;
+        .map_err(|e| AppError::Validation(format!("檔案太小或無法讀取：{e}").into()))?;
     Ok(buf)
 }
 
@@ -220,7 +219,7 @@ pub async fn restore_from(
         return Err(AppError::Validation(format!(
             "這份備份來自較新的版本（schema {backup_version}，目前程式只支援到 {current_max_migration}）。\n\
              請先把 open-pos 更新到較新的版本再還原。"
-        )));
+        ).into()));
     }
 
     let db = layout.db_file();
@@ -265,7 +264,7 @@ pub async fn max_migration_version(path: &Path) -> AppResult<i64> {
         .disable_statement_logging()
         .connect()
         .await
-        .map_err(|e| AppError::Validation(format!("備份檔開不起來：{e}")))?;
+        .map_err(|e| AppError::Validation(format!("備份檔開不起來：{e}").into()))?;
 
     // 沒有 _sqlx_migrations 表就當成 0（例如空白或極早期的檔）。
     let v: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")

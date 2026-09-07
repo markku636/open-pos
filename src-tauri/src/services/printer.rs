@@ -136,7 +136,41 @@ pub struct PrintQueueStatus {
     pub unrouted: i64,
     /// 有沒有需要人去處理的事。true 時 UI 要亮紅點。
     pub needs_attention: bool,
-    pub detail: String,
+    /// 現在是哪一種狀況。**回代碼而不是句子。**
+    ///
+    /// 這一行是收銀機頂欄上最顯眼的文字，而句子如果在這裡就組好，
+    /// 它永遠是中文的 —— 後端不知道看的人要哪一種語言，也不該知道。
+    /// 上面那三個數字前端都有，句子讓前端自己用字典組。
+    pub state: QueueState,
+}
+
+/// 出單佇列現在的狀況。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueState {
+    /// 有單印不出來（死信）。最嚴重，要人去看原因。
+    Dead,
+    /// 有單等著印，但一台印表機都還沒設定。
+    Unrouted,
+    /// 正常排隊中。
+    Pending,
+    /// 沒事。
+    Ok,
+}
+
+impl QueueState {
+    /// 給診斷包與 log 用的短代碼。
+    ///
+    /// **不是給畫面用的** —— 畫面要的是翻譯過的句子，那在前端字典裡。
+    /// 診斷包是給維護者看的純文字檔，代碼比句子好讀也好 grep。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Dead => "dead",
+            Self::Unrouted => "unrouted",
+            Self::Pending => "pending",
+            Self::Ok => "ok",
+        }
+    }
 }
 
 // ---------------------------------------------------------------- 讀：設定
@@ -236,7 +270,9 @@ pub async fn upsert_printer(ctx: &Ctx, input: PrinterInput) -> AppResult<Printer
     // 在設定頁就攔下來，比讓它變成一張進死信的單好得多。
     if let Transport::Network { host, .. } = &input.transport {
         if let Some(hint) = crate::infra::printer::network::looks_like_a_typo(host) {
-            return Err(AppError::Validation(format!("印表機位址有問題：{hint}")));
+            return Err(AppError::Validation(
+                format!("印表機位址有問題：{hint}").into(),
+            ));
         }
     }
 
@@ -337,7 +373,9 @@ pub async fn upsert_station(ctx: &Ctx, input: StationInput) -> AppResult<Station
     }
     let template = input.template.unwrap_or_else(|| "kitchen".into());
     if !["kitchen", "drink", "receipt", "label"].contains(&template.as_str()) {
-        return Err(AppError::Validation(format!("不認得的單別：{template}")));
+        return Err(AppError::Validation(
+            format!("不認得的單別：{template}").into(),
+        ));
     }
 
     let now = Stamp::now();
@@ -785,14 +823,15 @@ pub async fn queue_status(ctx: &Ctx) -> AppResult<PrintQueueStatus> {
     .fetch_one(ctx.db.reader())
     .await?;
 
-    let detail = if dead > 0 {
-        format!("有 {dead} 張單印不出來 —— 請到出單機設定看原因")
+    // 只判斷「是哪一種狀況」，句子交給前端 —— 見 QueueState 的說明。
+    let state = if dead > 0 {
+        QueueState::Dead
     } else if unrouted > 0 && printers == 0 {
-        format!("有 {unrouted} 張單等著印，但還沒有設定任何出單機")
+        QueueState::Unrouted
     } else if pending > 0 {
-        format!("{pending} 張單排隊中")
+        QueueState::Pending
     } else {
-        "出單正常".into()
+        QueueState::Ok
     };
 
     Ok(PrintQueueStatus {
@@ -800,7 +839,7 @@ pub async fn queue_status(ctx: &Ctx) -> AppResult<PrintQueueStatus> {
         pending,
         dead,
         unrouted,
-        detail,
+        state,
     })
 }
 

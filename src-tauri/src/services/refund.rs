@@ -276,7 +276,7 @@ pub async fn refund(ctx: &Ctx, req: RefundReq) -> AppResult<RefundResult> {
     if req.amount > refundable {
         return Err(AppError::Validation(format!(
             "「{method_name}」這一筆只收了 {paid} 元、已經退過 {already} 元，最多只能再退 {refundable} 元"
-        )));
+        ).into()));
     }
 
     let bill_total: i64 = bill.get("grand_total");

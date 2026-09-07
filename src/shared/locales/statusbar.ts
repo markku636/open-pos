@@ -133,4 +133,29 @@ export const statusbar = {
   },
   copyAll: { 'zh-TW': '複製全部', en: 'Copy all', ja: 'すべてコピー' },
   copied: { 'zh-TW': '已複製', en: 'Copied', ja: 'コピーしました' },
+
+  /**
+   * 出單佇列的四種狀況。後端只回代碼（見 api.ts 的 PrintQueueStatus.state），
+   * 句子在這裡組 —— 數字前端本來就有。
+   *
+   * dead 是最嚴重的一種：單已經印不出來了。POS 最常見的客訴是「廚房沒收到單」，
+   * 而根因幾乎都是系統知道印失敗了卻沒告訴任何人，所以這一句要直接說出
+   * 「去哪裡看原因」。
+   */
+  queueDead: {
+    'zh-TW': '有 {n} 張單印不出來 —— 請到出單機設定看原因',
+    en: '{n} ticket(s) failed to print - open Printers to see why',
+    ja: '{n} 件が印刷できません。プリンター設定で原因を確認してください',
+  },
+  queueUnrouted: {
+    'zh-TW': '有 {n} 張單等著印，但還沒有設定任何出單機',
+    en: '{n} ticket(s) waiting, but no printer is set up yet',
+    ja: '{n} 件が印刷待ちですが、プリンターが未設定です',
+  },
+  queuePending: {
+    'zh-TW': '{n} 張單排隊中',
+    en: '{n} ticket(s) queued',
+    ja: '{n} 件を印刷待ち',
+  },
+  queueOk: { 'zh-TW': '出單正常', en: 'Printing OK', ja: '印刷は正常です' },
 } satisfies Catalog

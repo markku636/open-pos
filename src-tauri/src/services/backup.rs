@@ -81,16 +81,19 @@ pub async fn save_settings(ctx: &Ctx, s: AppSettings) -> AppResult<AppSettings> 
         if !dir.is_empty() {
             let path = Path::new(dir);
             if !path.is_dir() {
-                return Err(AppError::Validation(format!(
-                    "找不到備份資料夾「{dir}」。\n\
+                return Err(AppError::Validation(
+                    format!(
+                        "找不到備份資料夾「{dir}」。\n\
                      如果那是隨身碟，請先插上去再儲存。"
-                )));
+                    )
+                    .into(),
+                ));
             }
             // 立刻試寫一次。等到半夜自動備份才發現沒有寫入權限，
             // 就是「以為有在備份、其實三個月沒備了」的來源。
             let probe = path.join(".open-pos-write-test");
             tokio::fs::write(&probe, b"ok").await.map_err(|e| {
-                AppError::Validation(format!("「{dir}」寫不進去（{e}）—— 請換一個資料夾。"))
+                AppError::Validation(format!("「{dir}」寫不進去（{e}）—— 請換一個資料夾。").into())
             })?;
             let _ = tokio::fs::remove_file(&probe).await;
         }
@@ -229,10 +232,13 @@ pub async fn stage_restore(ctx: &Ctx, path: String) -> AppResult<String> {
     let current = crate::infra::db::sqlite::SqliteDb::max_migration_version();
     let backup_version = backup::max_migration_version(&src).await?;
     if backup_version > current {
-        return Err(AppError::Validation(format!(
-            "這份備份來自較新的版本（schema {backup_version}，目前程式只支援到 {current}）。\n\
+        return Err(AppError::Validation(
+            format!(
+                "這份備份來自較新的版本（schema {backup_version}，目前程式只支援到 {current}）。\n\
              請先把 open-pos 更新到較新的版本再還原。"
-        )));
+            )
+            .into(),
+        ));
     }
 
     let staged = ctx.layout.root.join(PENDING_DB);

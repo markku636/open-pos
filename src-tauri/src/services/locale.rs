@@ -33,13 +33,16 @@ pub async fn get(ctx: &Ctx) -> AppResult<Locale> {
 
     // 存的是 JSON 字串（"ja"），但手動改過設定檔的人可能會寫成裸字串。
     // 兩種都收 —— 一個因為引號沒打就開不了的收銀機不值得。
-    Ok(match raw {
+    let l = match raw {
         None => Locale::default(),
         Some(s) => {
             let cleaned = serde_json::from_str::<String>(&s).unwrap_or(s);
             Locale::parse(&cleaned)
         }
-    })
+    };
+    // 開機第一次讀到就同步過去。
+    crate::i18n::set_current(l);
+    Ok(l)
 }
 
 /// 換語言。
@@ -59,6 +62,9 @@ pub async fn set(ctx: &Ctx, locale: Locale) -> AppResult<()> {
     .execute(uow.conn())
     .await?;
     uow.commit().await?;
+    // 同步給 AppError 的序列化用（見 i18n::CURRENT 的說明）——
+    // 少了這一行，換語言之後錯誤訊息要等重開才會跟著換。
+    crate::i18n::set_current(locale);
     Ok(())
 }
 

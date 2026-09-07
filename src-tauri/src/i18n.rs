@@ -16,8 +16,12 @@
 //! 如果 `Msg` 只接受鍵值，那就得**一次改完**才能編譯 —— 而一個必須一次改完
 //! 的重構，多半會在改到一半的時候被別的事情打斷，然後永遠停在那裡。
 //!
-//! `From<String>` 讓舊的呼叫點原封不動繼續編譯，新的與改過的走 `msg!`。
-//! 底下 `no_new_literal_messages` 那條測試會盯著剩餘數量只能少不能多。
+//! `From<String>` 讓寫成 `"...".into()` 的舊呼叫點繼續編譯，新的與改過的走 `msg!`。
+//!
+//! **一點誠實的更正**：這招沒有想像中乾淨。`AppError::Validation(format!(...))`
+//! 這種直接傳 `String` 的寫法**不會**自動轉 —— Rust 在函式引數位置不套 `From`。
+//! 實際遷移時有 50 處要補 `.into()`（機械式的一次改完，見 git 記錄）。
+//! 真正省下來的是「不必同時把 50 處的文案都翻成三語」，那才是會卡住的部分。
 //!
 //! # 日文與列印
 //!
@@ -77,6 +81,36 @@ impl Locale {
     }
 
     pub const ALL: [Locale; 3] = [Locale::ZhTw, Locale::En, Locale::Ja];
+}
+
+/// 目前的介面語言（process 全域）。
+///
+/// # 為什麼是全域的
+///
+/// 因為在這個設計裡它**本來就是全域的**：語言是 `app_settings` 裡的一個值，
+/// 整台機器共用（見 `services::locale` 的說明）。
+///
+/// 需要它的地方是 `AppError` 的序列化 —— serde 沒有地方讓我們把 `Ctx` 傳進去，
+/// 而把 locale 塞進每一個 `AppError` 的建構點，等於要求一百多個 `Err(...)`
+/// 都得先拿到 ctx。那種改法會讓「丟一個錯誤」變成一件麻煩事，
+/// 而麻煩的錯誤處理最後一定會被繞過。
+///
+/// 代價講清楚：它讓「同一台主機、兩個客戶端各自不同語言」做不到。
+/// 那件事今天也做不到（locale 是單一設定），要做的時候這裡就是要改的地方。
+static CURRENT: std::sync::RwLock<Locale> = std::sync::RwLock::new(Locale::ZhTw);
+
+/// 現在要用哪一種語言。
+pub fn current() -> Locale {
+    // 讀不到鎖（另一個執行緒 panic 了）就回中文，不要跟著 panic ——
+    // 錯誤訊息的語言不值得讓整個程式倒下。
+    CURRENT.read().map(|g| *g).unwrap_or(Locale::ZhTw)
+}
+
+/// 換語言。開機讀完設定、以及使用者切換時各呼叫一次。
+pub fn set_current(l: Locale) {
+    if let Ok(mut g) = CURRENT.write() {
+        *g = l;
+    }
 }
 
 /// 一則要給人看的訊息。
@@ -244,6 +278,49 @@ static CATALOG: &[(&str, [&str; 3])] = &[
             "不認得的金流商：{provider}",
             "Unrecognised payment provider: {provider}",
             "認識できない決済プロバイダーです：{provider}",
+        ],
+    ),
+    (
+        "order.split_count_locked",
+        [
+            "這張單一開始是分 {count} 份，不能改成 {want} 份。",
+            "This order was already split {count} ways; it cannot become {want}.",
+            "この伝票は最初に {count} 等分で会計しています。{want} 等分には変更できません。",
+        ],
+    ),
+    // 分法的名字（平分／分項／指定金額）本身就是要翻譯的字，所以它不是參數，
+    // 而是四條各自完整的句子 —— 參數裡塞一個寫死的「平分」，日文店員看到的
+    // 就會是一句夾著中文的日文。
+    (
+        "order.split_mode_locked_by_amount",
+        [
+            "這張單已經用「指定金額」分過帳了，不能中途改成別的分法。",
+            "This order is already being split by amount; the split method cannot change midway.",
+            "この伝票はすでに「金額指定」で分割会計しています。途中で分け方は変更できません。",
+        ],
+    ),
+    (
+        "order.split_mode_locked_by_item",
+        [
+            "這張單已經用「分項」分過帳了，不能中途改成別的分法。",
+            "This order is already being split by item; the split method cannot change midway.",
+            "この伝票はすでに「品目別」で分割会計しています。途中で分け方は変更できません。",
+        ],
+    ),
+    (
+        "order.split_mode_locked_even",
+        [
+            "這張單已經用「平分」分過帳了，不能中途改成別的分法。",
+            "This order is already being split evenly; the split method cannot change midway.",
+            "この伝票はすでに「割り勘」で分割会計しています。途中で分け方は変更できません。",
+        ],
+    ),
+    (
+        "order.split_mode_locked_whole",
+        [
+            "這張單已經整單結過帳了，不能再改成分帳。",
+            "This order was already settled in full; it cannot be split now.",
+            "この伝票はすでに一括で会計済みです。分割会計には変更できません。",
         ],
     ),
     (

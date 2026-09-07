@@ -9,7 +9,7 @@ import OrderScreen, { type Seat } from './OrderScreen'
 import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
 import GatewayPanel from './GatewayPanel'
-import { LocaleProvider, LOCALE_LABELS, LOCALES, useLocale, useT, type Locale } from '@/shared/i18n'
+import { LocaleProvider, LOCALE_LABELS, LOCALES, useLocale, useT, type Locale, type Msg } from '@/shared/i18n'
 import { nav, ui } from '@/shared/locales/nav'
 import { statusbar } from '@/shared/locales/statusbar'
 import SalesPanel from './SalesPanel'
@@ -132,7 +132,7 @@ function Shell() {
             onClick={() => setTab('printer')}
           >
             <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" />
-            {queue.detail}
+            {queueText(t, queue)}
           </button>
         )}
         <LocalePicker />
@@ -395,4 +395,27 @@ function LocalePicker() {
       ))}
     </select>
   )
+}
+
+/**
+ * 出單佇列橫幅的句子。
+ *
+ * 後端只回 state 與三個數字，句子在這裡組 —— 這樣它才會跟著介面語言走。
+ * 放在元件外面是因為 PrinterSettings 之後也要用同一句，
+ * 而同一個狀況在兩個地方講不一樣的話，店家會以為是兩件事。
+ */
+function queueText(
+  t: (m: Msg, p?: Record<string, string | number>) => string,
+  q: PrintQueueStatus,
+): string {
+  switch (q.state) {
+    case 'dead':
+      return t(statusbar.queueDead, { n: q.dead })
+    case 'unrouted':
+      return t(statusbar.queueUnrouted, { n: q.unrouted })
+    case 'pending':
+      return t(statusbar.queuePending, { n: q.pending })
+    default:
+      return t(statusbar.queueOk)
+  }
 }

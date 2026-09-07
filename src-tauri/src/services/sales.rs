@@ -82,8 +82,14 @@ pub struct Sale {
     pub order_no: String,
     pub business_date: String,
     pub settled_at: Option<String>,
+    /// 通路代碼（`dine_in` / `takeout` / `delivery`）。
+    ///
+    /// **只回代碼、不回標籤。** 標籤是畫面的事：這支查詢不知道、也不該知道
+    /// 現在看這一頁的人講哪一種語言。以前這裡還有一個 `channel_label`
+    /// 直接吐「內用」出去，於是英文與日文的店員在一切正常的路徑上
+    /// 看到中文。前端本來就有一份通路字典，後端再吐一份，
+    /// 只是多一份會各自漂移的翻譯。
     pub channel: String,
-    pub channel_label: String,
     pub table_label: Option<String>,
     pub guest_count: i64,
     pub status: String,
@@ -283,7 +289,6 @@ pub async fn history(ctx: &Ctx, q: SalesQuery) -> AppResult<SalesReport> {
             order_no: r.get("order_no"),
             business_date: r.get("business_date"),
             settled_at: r.get("settled_at"),
-            channel_label: channel_label(&channel).into(),
             channel,
             table_label: r.get("table_code"),
             guest_count: r.get("guest_count"),
@@ -335,7 +340,13 @@ const WHERE_CLAUSE: &str = "b.status IN ('settled', 'partially_refunded', 'refun
       AND (?4 IS NULL OR b.bill_no LIKE ?4 OR o.order_no LIKE ?4)
       AND (?5 = 0 OR b.status IN ('partially_refunded', 'refunded'))";
 
-fn channel_label(code: &str) -> &'static str {
+/// 通路代碼 → 中文標籤。**現在只剩 Excel 匯出在用。**
+///
+/// `Sale` 已經不帶標籤了（畫面自己查字典），但匯出的活頁簿從標題列
+/// 「營業日 / 帳單號 / 通路」到每一格都是中文 —— 它是一份中文文件，
+/// 不是畫面。那份文件的用字歸產生它的 `xlsx.rs` 管，
+/// 跟收銀機現在顯示哪一國語言沒有關係。
+pub(crate) fn channel_label(code: &str) -> &'static str {
     match code {
         "dine_in" => "內用",
         "takeout" => "外帶",
@@ -375,9 +386,9 @@ pub async fn closed_days(ctx: &Ctx) -> AppResult<Vec<String>> {
 pub fn ensure_dir(dir: &str) -> AppResult<std::path::PathBuf> {
     let path = std::path::PathBuf::from(dir);
     if !path.is_dir() {
-        return Err(AppError::Validation(format!(
-            "找不到資料夾 {dir}。\n\n如果那是隨身碟，請確認它還插著。"
-        )));
+        return Err(AppError::Validation(
+            format!("找不到資料夾 {dir}。\n\n如果那是隨身碟，請確認它還插著。").into(),
+        ));
     }
     Ok(path)
 }

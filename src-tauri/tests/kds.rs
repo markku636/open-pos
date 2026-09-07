@@ -118,7 +118,8 @@ async fn the_board_shows_what_the_kitchen_still_has_to_make() {
     let board = kds::board(&e.ctx).await.unwrap();
     assert_eq!(board.tickets.len(), 1);
     assert_eq!(board.tickets[0].lines.len(), 2);
-    assert_eq!(board.tickets[0].channel_label, "外帶");
+    // 看板給的是代碼不是「外帶」兩個字 —— 顯示文字由廚房平板那一端決定。
+    assert_eq!(board.tickets[0].channel, "takeout");
     // 剛開的單等待時間應該接近 0，而不是一個亂數。
     assert!(board.tickets[0].waiting_seconds < 5);
 

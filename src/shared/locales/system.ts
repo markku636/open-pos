@@ -258,4 +258,52 @@ export const system = {
     en: 'Restore from this backup?\n\n{name}\n\nThe current data is renamed and kept (pre-restore), not deleted.\nThe restore finishes the next time {app} starts.',
     ja: 'このバックアップから復元しますか？\n\n{name}\n\n現在のデータはリネームして保持され（pre-restore）、削除されません。\n復元は次回 {app} を起動したときに完了します。',
   },
+
+  /**
+   * 區網探測結果與網卡不能用的原因。後端回代碼，句子在這裡組。
+   *
+   * `lanBound` 那一句要特別小心：從自己連自己**證明不了防火牆有放行**，
+   * 只證明 server 綁對了網卡。這一頁不可以印一個假的綠燈 ——
+   * 唯一能證明的是另一台裝置真的開得起來。
+   */
+  lanNoAddress: {
+    'zh-TW': '找不到可用的區網位址。主機可能沒有連上網路，或只剩下虛擬網卡。',
+    en: 'No usable LAN address. The host may be offline, or only virtual adapters are left.',
+    ja: '利用可能なLANアドレスがありません。ホストがネットワークに繋がっていないか、仮想アダプターしか残っていない可能性があります。',
+  },
+  lanBound: {
+    'zh-TW': 'server 有綁在這張網卡上。能不能從平板連進來，要用平板實際開一次才知道。',
+    en: 'The server is bound to this adapter. Whether a tablet can reach it is only proven by opening it on the tablet.',
+    ja: 'サーバーはこのアダプターにバインドされています。タブレットから繋がるかどうかは、実際にタブレットで開いてみないと分かりません。',
+  },
+  lanResolveFailed: {
+    'zh-TW': '{addr} 解析不出位址。{error}',
+    en: 'Could not resolve {addr}. {error}',
+    ja: '{addr} を解決できません。{error}',
+  },
+  lanConnectFailed: {
+    'zh-TW': '連不到 {addr}（{error}）。server 可能只綁在本機位址上。',
+    en: 'Cannot reach {addr} ({error}). The server may be bound to localhost only.',
+    ja: '{addr} に接続できません（{error}）。サーバーがローカルホストのみにバインドされている可能性があります。',
+  },
+  nicLoopback: {
+    'zh-TW': '本機位址，平板連不到',
+    en: 'Loopback address, tablets cannot reach it',
+    ja: 'ループバックアドレスのため、タブレットからは繋がりません',
+  },
+  nicLinkLocal: {
+    'zh-TW': 'DHCP 沒拿到位址（169.254.x.x），這個位址明天就會變',
+    en: 'DHCP did not assign an address (169.254.x.x); this one will change tomorrow',
+    ja: 'DHCPからアドレスを取得できていません（169.254.x.x）。このアドレスは明日には変わります',
+  },
+  nicNotPrivate: {
+    'zh-TW': '不是區網位址',
+    en: 'Not a private LAN address',
+    ja: 'LANのアドレスではありません',
+  },
+  nicVirtual: {
+    'zh-TW': '{vendor} 的虛擬網卡，不是店裡的網路',
+    en: '{vendor} virtual adapter, not the shop network',
+    ja: '{vendor} の仮想アダプターで、店舗のネットワークではありません',
+  },
 } satisfies Catalog

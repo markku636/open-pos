@@ -180,16 +180,16 @@ async fn run_lane(ctx: &Ctx, jobs: Vec<Job>) -> AppResult<(usize, usize, usize)>
 
 fn open(transport: &str, caps: &str) -> AppResult<Active> {
     let transport = serde_json::from_str(transport)
-        .map_err(|e| AppError::Validation(format!("印表機的連線設定讀不懂：{e}")))?;
+        .map_err(|e| AppError::Validation(format!("印表機的連線設定讀不懂：{e}").into()))?;
     let caps = serde_json::from_str(caps)
-        .map_err(|e| AppError::Validation(format!("印表機的能力設定讀不懂：{e}")))?;
+        .map_err(|e| AppError::Validation(format!("印表機的能力設定讀不懂：{e}").into()))?;
     Active::open(&transport, caps)
 }
 
 fn render(doc_json: &str, caps: &crate::infra::printer::PrinterCaps) -> AppResult<Vec<u8>> {
     let doc: ReceiptDoc = serde_json::from_str(doc_json)
         // 版面壞掉是永久錯誤：重試一萬次也一樣。
-        .map_err(|e| AppError::Validation(format!("這張單的版面讀不懂：{e}")))?;
+        .map_err(|e| AppError::Validation(format!("這張單的版面讀不懂：{e}").into()))?;
     let out =
         crate::infra::printer::escpos::EscPosTextRenderer::new(caps.paper.cols(), caps.encoding)
             .encode(&doc);

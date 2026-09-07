@@ -59,7 +59,13 @@ export const order = {
   // ── 購物車抬頭 ──
   leaveTable: { 'zh-TW': '離開這一桌', en: 'Leave this table', ja: 'テーブルを離れる' },
   guests: { 'zh-TW': '{n} 位', en: '{n} guests', ja: '{n} 名' },
-  dineIn: { 'zh-TW': '內用', en: 'Dine in', ja: 'イートイン' },
+  // 通路的字。**這裡是它唯一的來源** —— 後端給的是代碼（`dine_in`），
+  // 因為它不知道站在螢幕前的是誰。
+  //
+  // 銷售記錄（sales）與廚房單（kds）那兩張表講的是同一件事，所以英文跟著
+  // 它們寫成 `Dine-in`（本來是 `Dine in`）：同一個概念在三個畫面上長得
+  // 不一樣，看起來就像三種東西。
+  dineIn: { 'zh-TW': '內用', en: 'Dine-in', ja: 'イートイン' },
   takeout: { 'zh-TW': '外帶', en: 'Takeout', ja: 'テイクアウト' },
   noOrderYet: { 'zh-TW': '尚未開單', en: 'No order', ja: '伝票なし' },
   cartEmpty: {

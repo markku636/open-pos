@@ -79,15 +79,15 @@ impl Keys {
         // 長度不對就當場說清楚。這個錯誤如果放過去，症狀會變成
         // 「每一筆都被藍新退件」，而那時候完全看不出來是金鑰貼錯。
         if k.len() != 32 {
-            return Err(AppError::Validation(format!(
-                "藍新 HashKey 必須是 32 個字元，你貼的是 {} 個",
-                k.len()
+            return Err(AppError::Validation(crate::msg!(
+                "gateway.hash_key_len",
+                n = k.len()
             )));
         }
         if v.len() != 16 {
-            return Err(AppError::Validation(format!(
-                "藍新 HashIV 必須是 16 個字元，你貼的是 {} 個",
-                v.len()
+            return Err(AppError::Validation(crate::msg!(
+                "gateway.hash_iv_len",
+                n = v.len()
             )));
         }
         let mut key = [0u8; 32];
@@ -351,6 +351,37 @@ mod tests {
         // 空白是 + 不是 %20，百分比後面是大寫。
         let s = sorted_query(&[("Z", "a b"), ("A", "x/y"), ("M", "3")]);
         assert_eq!(s, "A=x%2Fy&M=3&Z=a+b");
+    }
+
+    #[test]
+    fn a_rejected_key_is_reported_in_the_shop_language() {
+        // 這條在驗整條 i18n 路徑真的通了：msg! → 目錄 → 依語言 render。
+        // 沒有它，「後端訊息可以多語系」只是一個沒有人走過的設計。
+        use crate::i18n::Locale;
+
+        let err = Keys::new("too-short", DOC_IV).unwrap_err();
+        let AppError::Validation(m) = &err else {
+            panic!("應該是 Validation：{err:?}");
+        };
+        assert!(!m.is_literal(), "應該是帶鍵值的訊息，不是寫死的字串");
+
+        // 三種語言都講得出「32」這個關鍵數字。
+        for l in Locale::ALL {
+            let s = m.render(l);
+            assert!(s.contains("32"), "{l:?} 少了長度：{s}");
+        }
+        // 而且真的是各自的語言，不是三次中文。
+        assert!(
+            m.render(Locale::En).contains("characters"),
+            "{}",
+            m.render(Locale::En)
+        );
+        assert!(
+            m.render(Locale::Ja).contains("文字"),
+            "{}",
+            m.render(Locale::Ja)
+        );
+        assert_ne!(m.render(Locale::ZhTw), m.render(Locale::Ja));
     }
 
     #[test]

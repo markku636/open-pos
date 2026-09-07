@@ -41,7 +41,11 @@ pub struct NetInterface {
     pub chosen: bool,
     /// 明顯不該拿來用的（虛擬網卡、DHCP 失敗的 169.254）。
     pub usable: bool,
-    pub note: Option<String>,
+    /// 這張網卡為什麼不能用。`None` = 可以用。
+    ///
+    /// **回代碼不回句子** —— 後端不知道看的人要哪一種語言。
+    /// 廠商名（Docker / WSL / …）是專有名詞，三種語言都一樣，所以直接帶過去。
+    pub note: Option<NicNote>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,7 +59,8 @@ pub struct LanStatus {
     pub order_url: Option<String>,
     /// server 真的綁在區網介面上。**這不等於防火牆有放行。**
     pub bound: bool,
-    pub detail: String,
+    /// 探測結果。同樣回代碼，句子在前端組。
+    pub detail: LanDetail,
     pub interfaces: Vec<NetInterface>,
     /// 上一次記下來的 IP。跟現在不一樣時，桌卡 QR 全部要重印。
     pub previous_ip: Option<String>,
@@ -71,10 +76,7 @@ pub async fn lan_status(ctx: &Ctx, port: u16) -> AppResult<LanStatus> {
 
     let (bound, detail) = match &chosen {
         Some(ip) => probe(ip, port),
-        None => (
-            false,
-            "找不到可用的區網位址。主機可能沒有連上網路，或只剩下虛擬網卡。".into(),
-        ),
+        None => (false, LanDetail::NoAddress),
     };
 
     let previous_ip = get_setting(ctx, LAST_IP_KEY).await?;
@@ -108,25 +110,78 @@ pub async fn lan_status(ctx: &Ctx, port: u16) -> AppResult<LanStatus> {
 }
 
 /// 從區網位址連自己一次。
-fn probe(ip: &str, port: u16) -> (bool, String) {
+/// 一張網卡不能用的原因。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NicNote {
+    /// loopback / link_local / not_private / virtual
+    ///
+    /// 用 String 而不是 &'static str：derive 的 Deserialize 需要擁有所有權的資料。
+    /// 網卡數量是個位數，這點配置成本無所謂。
+    pub code: String,
+    /// `virtual` 時是廠商名（Docker、WSL…）。專有名詞，不翻譯。
+    pub vendor: Option<String>,
+}
+
+/// 區網探測的結果。
+///
+/// OS 給的錯誤字串（`error`）原樣帶著 —— 它本來就不是我們的文案，
+/// 翻譯它只會讓使用者更難把訊息貼到搜尋引擎裡。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum LanDetail {
+    /// 一張可用的網卡都找不到。
+    NoAddress,
+    /// server 確實綁在這張網卡上。
+    ///
+    /// 注意這**不等於**平板連得進來 —— 從自己連自己證明不了防火牆有放行，
+    /// 前端的文案必須把這件事說清楚。
+    Bound,
+    ResolveFailed {
+        addr: String,
+        error: String,
+    },
+    ConnectFailed {
+        addr: String,
+        error: String,
+    },
+}
+
+fn probe(ip: &str, port: u16) -> (bool, LanDetail) {
     use std::net::{TcpStream, ToSocketAddrs};
     use std::time::Duration;
 
     let addr = match format!("{ip}:{port}").to_socket_addrs() {
         Ok(mut it) => match it.next() {
             Some(a) => a,
-            None => return (false, format!("{ip}:{port} 解析不出位址")),
+            None => {
+                return (
+                    false,
+                    LanDetail::ResolveFailed {
+                        addr: format!("{ip}:{port}"),
+                        error: String::new(),
+                    },
+                )
+            }
         },
-        Err(e) => return (false, format!("{ip}:{port} 解析失敗：{e}")),
+        Err(e) => {
+            return (
+                false,
+                LanDetail::ResolveFailed {
+                    addr: format!("{ip}:{port}"),
+                    error: e.to_string(),
+                },
+            )
+        }
     };
     match TcpStream::connect_timeout(&addr, Duration::from_millis(800)) {
-        Ok(_) => (
-            true,
-            "server 有綁在這張網卡上。能不能從平板連進來，要用平板實際開一次才知道。".into(),
-        ),
+        Ok(_) => (true, LanDetail::Bound),
         Err(e) => (
             false,
-            format!("連不到 {ip}:{port}（{e}）。server 可能只綁在本機位址上。"),
+            LanDetail::ConnectFailed {
+                addr: format!("{ip}:{port}"),
+                error: e.to_string(),
+            },
         ),
     }
 }
@@ -163,29 +218,39 @@ fn interfaces() -> Vec<NetInterface> {
 ///
 /// 開發機上的虛擬網卡多到爆（Docker、WSL、VirtualBox、VPN），不標出來的話
 /// 使用者一定選錯 —— 而且是「QR 都印出去貼在桌上了才發現連不上」這種最貴的錯法。
-fn disqualify(name: &str, ip: &std::net::Ipv4Addr) -> Option<String> {
+fn disqualify(name: &str, ip: &std::net::Ipv4Addr) -> Option<NicNote> {
+    let note = |code: &str| {
+        Some(NicNote {
+            code: code.to_string(),
+            vendor: None,
+        })
+    };
     if ip.is_loopback() {
-        return Some("本機位址，平板連不到".into());
+        return note("loopback");
     }
     if ip.is_link_local() {
-        return Some("DHCP 沒拿到位址（169.254.x.x），這個位址明天就會變".into());
+        return note("link_local");
     }
     if !ip.is_private() {
-        return Some("不是區網位址".into());
+        return note("not_private");
     }
     let lower = name.to_ascii_lowercase();
-    for (needle, why) in [
-        ("docker", "Docker 的虛擬網卡"),
-        ("wsl", "WSL 的虛擬網卡"),
-        ("vethernet", "Hyper-V 的虛擬網卡"),
-        ("virtualbox", "VirtualBox 的虛擬網卡"),
-        ("vmware", "VMware 的虛擬網卡"),
-        ("tailscale", "Tailscale 的虛擬網卡"),
-        ("zerotier", "ZeroTier 的虛擬網卡"),
-        ("loopback", "本機位址"),
+    // 廠商名是專有名詞，三種語言都一樣，所以帶著代碼一起回去，
+    // 句子（「…的虛擬網卡，不是店裡的網路」）由前端組。
+    for (needle, vendor) in [
+        ("docker", "Docker"),
+        ("wsl", "WSL"),
+        ("vethernet", "Hyper-V"),
+        ("virtualbox", "VirtualBox"),
+        ("vmware", "VMware"),
+        ("tailscale", "Tailscale"),
+        ("zerotier", "ZeroTier"),
     ] {
         if lower.contains(needle) {
-            return Some(format!("{why}，不是店裡的網路"));
+            return Some(NicNote {
+                code: "virtual".to_string(),
+                vendor: Some(vendor.to_string()),
+            });
         }
     }
     None
@@ -236,7 +301,23 @@ mod tests {
     fn dhcp_failure_is_explained_not_just_rejected() {
         // 169.254.x.x 是 DHCP 失敗，而「這個位址明天就會變」正是使用者
         // 需要知道的那一句 —— 只說「不可用」他會以為是程式的問題。
+        //
+        // 現在斷言的是**分類**而不是文案：句子在前端的字典裡（三種語言各一份），
+        // 這裡只要保證這個 IP 被歸到 link_local 而不是被籠統地拒絕。
         let why = disqualify("Wi-Fi", &Ipv4Addr::new(169, 254, 3, 9)).unwrap();
-        assert!(why.contains("DHCP"), "{why}");
+        assert_eq!(why.code, "link_local");
+        assert!(why.vendor.is_none());
+    }
+
+    #[test]
+    fn a_virtual_adapter_reports_which_vendor_it_is() {
+        // 廠商名是專有名詞，三種語言都一樣，所以後端帶它過去。
+        // 少了它，畫面上只會說「虛擬網卡」，而店裡可能同時有三張。
+        let why = disqualify("vEthernet (WSL)", &Ipv4Addr::new(172, 20, 0, 1)).unwrap();
+        assert_eq!(why.code, "virtual");
+        assert_eq!(why.vendor.as_deref(), Some("WSL"));
+
+        let why = disqualify("docker0", &Ipv4Addr::new(172, 17, 0, 1)).unwrap();
+        assert_eq!(why.vendor.as_deref(), Some("Docker"));
     }
 }

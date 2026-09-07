@@ -771,7 +771,8 @@ async fn the_audit_report_adds_up_what_left_the_till() {
         .expect("依動作要有退款那一組");
     assert_eq!(refunds.count, 2);
     assert_eq!(refunds.amount, -25);
-    assert_eq!(refunds.label, "退款", "代碼要翻成人看得懂的字");
+    // 分組只回代碼，不回中文 —— 顯示成「退款」還是「返金」是畫面的事。
+    assert_eq!(refunds.key, "refund");
 
     // 誰批准的要跟金額記在同一列。
     assert!(

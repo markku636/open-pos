@@ -184,12 +184,12 @@ pub fn provider_label(code: &str) -> &'static str {
 pub async fn upsert(ctx: &Ctx, input: GatewayInput) -> AppResult<GatewayView> {
     rbac::require(&ctx.db, &ctx.actor, PERM_SETTINGS).await?;
     if input.display_name.trim().is_empty() {
-        return Err(AppError::Validation("名稱不能空白".into()));
+        return Err(AppError::Validation(crate::msg!("gateway.name_required")));
     }
     if !matches!(input.provider.as_str(), "manual" | "linepay" | "newebpay") {
-        return Err(AppError::Validation(format!(
-            "不認得的金流商：{}",
-            input.provider
+        return Err(AppError::Validation(crate::msg!(
+            "gateway.unknown_provider",
+            provider = input.provider
         )));
     }
 
@@ -232,10 +232,9 @@ pub async fn upsert(ctx: &Ctx, input: GatewayInput) -> AppResult<GatewayView> {
         .map(|(_, label, _)| *label)
         .collect();
     if want_active && !missing.is_empty() {
-        return Err(AppError::Validation(format!(
-            "還缺 {} 才能啟用。",
-            missing.join("、")
-        )));
+        return Err(AppError::Validation(
+            format!("還缺 {} 才能啟用。", missing.join("、")).into(),
+        ));
     }
 
     let creds_json = serde_json::to_string(&creds).unwrap_or_else(|_| "{}".into());

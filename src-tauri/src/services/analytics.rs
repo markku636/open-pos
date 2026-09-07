@@ -46,7 +46,13 @@ pub struct HourBucket {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NamedTotal {
-    pub label: String,
+    /// 這一列屬於哪一種（`comp` / `discount` / `void_order` / `void_item` /
+    /// `dine_in` …）。**代碼不翻成中文** —— 它是封閉的列舉，也就是資料；
+    /// 要顯示成「招待」還是「サービス」是畫面的事，而後端不知道現在是誰在看。
+    pub code: Option<String>,
+    /// 店家自己打的字（折扣名、原因名、品名）。它不是列舉，所以原樣回去 ——
+    /// 「牛肉麵」不會因為換了介面語言就變成別的東西。
+    pub name: Option<String>,
     pub count: i64,
     pub amount: i64,
 }
@@ -132,14 +138,22 @@ pub async fn insight(ctx: &Ctx, q: InsightQuery) -> AppResult<Insight> {
     // 而老闆對這兩件事的容忍度完全不同。
     let discounts = named_totals(
         ctx,
-        "SELECT CASE WHEN d.type_snapshot = 'comp' THEN '招待：' ELSE '折扣：' END
-                || COALESCE(r.name, d.name_snapshot) AS label,
+        // 回代碼＋名字兩欄，不在 SQL 裡把「招待：」黏上去 ——
+        // 那個冒號前面的字要跟著介面語言變，SQL 不知道介面語言是什麼。
+        //
+        // GROUP BY 寫的是**完整算式**而不是 `code, name` 兩個別名：
+        // `reason_codes` 自己就有 `code` 與 `name` 兩個欄位，寫別名的話
+        // SQLite 會綁到那兩欄去，招待跟折扣會安靜地併成同一組。
+        "SELECT CASE WHEN d.type_snapshot = 'comp' THEN 'comp' ELSE 'discount' END AS code,
+                COALESCE(r.name, d.name_snapshot) AS name,
                 COUNT(*) AS n, COALESCE(SUM(d.amount), 0) AS amount
            FROM order_discounts d
            JOIN orders o ON o.id = d.order_id
            LEFT JOIN reason_codes r ON r.id = d.reason_id
           WHERE o.business_date >= ?1 AND o.business_date <= ?2 AND o.status = 'settled'
-          GROUP BY label ORDER BY amount DESC",
+          GROUP BY CASE WHEN d.type_snapshot = 'comp' THEN 'comp' ELSE 'discount' END,
+                   COALESCE(r.name, d.name_snapshot)
+          ORDER BY amount DESC",
         &from,
         &to,
     )
@@ -149,14 +163,17 @@ pub async fn insight(ctx: &Ctx, q: InsightQuery) -> AppResult<Insight> {
         ctx,
         // 「點錯退掉一項」與「整張單作廢」是兩件很不一樣的事：前者是日常，
         // 後者每一次都值得看一眼（尤其是結完帳之後作廢的）。分開列。
-        "SELECT CASE WHEN o.status = 'voided' THEN '整單作廢：' ELSE '退點：' END
-                || COALESCE(r.name, '未填原因') AS label, COUNT(*) AS n,
+        // 沒填原因的就回 NULL，不填「未填原因」四個字 —— 那也是一句要翻譯的話。
+        "SELECT CASE WHEN o.status = 'voided' THEN 'void_order' ELSE 'void_item' END AS code,
+                r.name AS name, COUNT(*) AS n,
                 COALESCE(SUM(oi.unit_price * oi.qty_milli / 1000), 0) AS amount
            FROM order_items oi
            JOIN orders o ON o.id = oi.order_id
            LEFT JOIN reason_codes r ON r.id = oi.void_reason_id
           WHERE o.business_date >= ?1 AND o.business_date <= ?2 AND oi.voided_at IS NOT NULL
-          GROUP BY label ORDER BY amount DESC",
+          GROUP BY CASE WHEN o.status = 'voided' THEN 'void_order' ELSE 'void_item' END,
+                   r.name
+          ORDER BY amount DESC",
         &from,
         &to,
     )
@@ -164,13 +181,15 @@ pub async fn insight(ctx: &Ctx, q: InsightQuery) -> AppResult<Insight> {
 
     let items = named_totals(
         ctx,
-        "SELECT oi.name_snapshot AS label, COALESCE(SUM(oi.qty_milli) / 1000, 0) AS n,
+        // 品名沒有代碼可言，它就是店家打的那幾個字。
+        "SELECT NULL AS code, oi.name_snapshot AS name,
+                COALESCE(SUM(oi.qty_milli) / 1000, 0) AS n,
                 COALESCE(SUM(oi.taxable_amount), 0) AS amount
            FROM order_items oi
            JOIN orders o ON o.id = oi.order_id
           WHERE o.business_date >= ?1 AND o.business_date <= ?2
             AND oi.voided_at IS NULL AND o.status = 'settled'
-          GROUP BY label ORDER BY amount DESC LIMIT 30",
+          GROUP BY oi.name_snapshot ORDER BY amount DESC LIMIT 30",
         &from,
         &to,
     )
@@ -178,12 +197,12 @@ pub async fn insight(ctx: &Ctx, q: InsightQuery) -> AppResult<Insight> {
 
     let channels = named_totals(
         ctx,
-        "SELECT CASE o.channel WHEN 'dine_in' THEN '內用' WHEN 'takeout' THEN '外帶'
-                               WHEN 'delivery' THEN '外送' ELSE o.channel END AS label,
+        // 通路整列就是一個代碼，沒有名字 —— CASE 翻中文那段拿掉了。
+        "SELECT o.channel AS code, NULL AS name,
                 COUNT(*) AS n, COALESCE(SUM(o.grand_total), 0) AS amount
            FROM orders o
           WHERE o.business_date >= ?1 AND o.business_date <= ?2 AND o.status = 'settled'
-          GROUP BY label ORDER BY amount DESC",
+          GROUP BY o.channel ORDER BY amount DESC",
         &from,
         &to,
     )
@@ -212,7 +231,8 @@ async fn named_totals(ctx: &Ctx, sql: &str, from: &str, to: &str) -> AppResult<V
     Ok(rows
         .iter()
         .map(|r| NamedTotal {
-            label: r.get("label"),
+            code: r.get("code"),
+            name: r.get("name"),
             count: r.get("n"),
             amount: r.get("amount"),
         })

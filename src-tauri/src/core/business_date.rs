@@ -44,7 +44,7 @@ impl BusinessDate {
     pub fn parse(s: &str) -> AppResult<Self> {
         NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .map(Self)
-            .map_err(|e| AppError::Validation(format!("不是合法的營業日 {s}：{e}")))
+            .map_err(|e| AppError::Validation(format!("不是合法的營業日 {s}：{e}").into()))
     }
 }
 

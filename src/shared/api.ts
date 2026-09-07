@@ -490,7 +490,13 @@ export interface PrintQueueStatus {
   /** 有意圖但展不開（通常是還沒設定任何印表機）。 */
   unrouted: number;
   needsAttention: boolean;
-  detail: string;
+  /**
+   * 現在是哪一種狀況。**後端回代碼，句子由前端組。**
+   *
+   * 這一行在收銀機頂欄上最顯眼，如果句子在 Rust 裡就 format! 好了，
+   * 它永遠是中文的 —— 後端不知道看的人要哪一種語言。
+   */
+  state: "dead" | "unrouted" | "pending" | "ok";
 }
 
 /**
@@ -786,7 +792,8 @@ export interface KdsLine {
 export interface KdsTicket {
   orderId: string;
   orderNo: string;
-  channelLabel: string;
+  /** 通路代碼。要顯示的字在 `locales/kds.ts` —— 後端不知道這台平板講哪一國話。 */
+  channel: Channel;
   tableLabel?: string | null;
   /** 這張單開了多久。廚房看的是「等最久的那一張」而不是時間點。 */
   waitingSeconds: number;
@@ -969,8 +976,8 @@ export interface AuditRow {
   at: string;
   businessDate: string | null;
   actorName: string | null;
+  /** 動作代碼（`refund`、`void_after_settle`…）。查 `auditActions` 翻成人話。 */
   action: string;
-  actionLabel: string;
   entityType: string;
   entityId: string;
   /** 人看得懂的對象（單號、帳單號）。 */
@@ -982,8 +989,8 @@ export interface AuditRow {
 }
 
 export interface AuditGroup {
+  /** 依動作分組時是動作代碼（要查字典），依操作者分組時是人名（原樣顯示）。 */
   key: string;
-  label: string;
   count: number;
   amount: number;
 }
@@ -1022,7 +1029,10 @@ export interface HourBucket {
 }
 
 export interface NamedTotal {
-  label: string;
+  /** 這一列屬於哪一種（`comp` / `void_item` / `dine_in`…）。查 `insightCodes`。 */
+  code: string | null;
+  /** 店家自己打的字（折扣名、原因名、品名）。不翻譯。 */
+  name: string | null;
   count: number;
   amount: number;
 }
@@ -1060,7 +1070,13 @@ export interface NetInterface {
   /** 這一張是不是挑來當區網位址的那一張。 */
   chosen: boolean;
   usable: boolean;
-  note: string | null;
+  /**
+   * 這張網卡為什麼不能用。`null` = 可以用。
+   *
+   * 後端回代碼不回句子 —— 它不知道看的人要哪一種語言。
+   * `vendor` 是廠商專有名詞（Docker / WSL…），三種語言都一樣。
+   */
+  note: { code: string; vendor: string | null } | null;
 }
 
 export interface LanStatus {
@@ -1071,7 +1087,12 @@ export interface LanStatus {
   orderUrl: string | null;
   /** server 真的綁在區網介面上。**這不等於防火牆有放行。** */
   bound: boolean;
-  detail: string;
+  /** 探測結果。代碼 + OS 給的原始錯誤字串（那個不翻譯）。 */
+  detail:
+    | { code: "noAddress" }
+    | { code: "bound" }
+    | { code: "resolveFailed"; addr: string; error: string }
+    | { code: "connectFailed"; addr: string; error: string };
   interfaces: NetInterface[];
   previousIp: string | null;
   /** IP 換過了 —— 桌卡 QR 全部要重印。 */
@@ -1111,8 +1132,8 @@ export interface Sale {
   orderNo: string;
   businessDate: string;
   settledAt: string | null;
+  /** 通路代碼（`dine_in` / `takeout` / `delivery`）。標籤查 `sales.ts` 的字典。 */
   channel: string;
-  channelLabel: string;
   tableLabel: string | null;
   guestCount: number;
   status: string;

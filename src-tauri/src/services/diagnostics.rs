@@ -125,7 +125,10 @@ pub async fn report(ctx: &Ctx) -> AppResult<String> {
             let _ = writeln!(
                 out,
                 "  排隊 {} / 死信 {} / 未展開 {}　—— {}",
-                q.pending, q.dead, q.unrouted, q.detail
+                q.pending,
+                q.dead,
+                q.unrouted,
+                q.state.as_str()
             );
         }
         Err(e) => {

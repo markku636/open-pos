@@ -53,7 +53,7 @@ impl Id {
     pub fn parse(s: &str) -> AppResult<Self> {
         ulid::Ulid::from_string(s)
             .map(|u| Self(u.to_string()))
-            .map_err(|e| AppError::Validation(format!("不是合法的 ULID：{s}（{e}）")))
+            .map_err(|e| AppError::Validation(format!("不是合法的 ULID：{s}（{e}）").into()))
     }
 }
 

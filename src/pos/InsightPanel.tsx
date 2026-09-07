@@ -7,9 +7,9 @@ import {
   type Insight,
   type NamedTotal,
 } from '@/shared/api'
-import { useT } from '@/shared/i18n'
+import { useT, type Msg } from '@/shared/i18n'
 import { ui } from '@/shared/locales/nav'
-import { reports } from '@/shared/locales/reports'
+import { insightCodes, reports } from '@/shared/locales/reports'
 import { formatMoney } from '@/shared/money'
 
 /**
@@ -25,6 +25,12 @@ import { formatMoney } from '@/shared/money'
  *
  * 因為那是實際會被問的三個問題。要人自己挑兩個日期才看得到東西的報表，
  * 多數人只會打開一次。
+ *
+ * # 每一列的名稱是在這裡組的
+ *
+ * 後端回代碼（`dine_in`、`comp`）與名字（折扣名、品名）兩欄，
+ * 不回「招待：買一送一」那一整句 —— 冒號前面那個字要跟著介面語言變，
+ * 而 SQL 不知道現在是誰在看這張報表。組合的規則見 `rowLabel`。
  */
 export default function InsightPanel() {
   const t = useT()
@@ -190,6 +196,27 @@ function Hours({ hours }: { hours: HourBucket[] }) {
   )
 }
 
+/**
+ * 一列的顯示名稱。
+ *
+ * 三種形狀：
+ * - 只有代碼（通路）：「內用」／`Dine-in`／「イートイン」
+ * - 只有名字（品項排行）：「牛肉麵」—— 店家打的字，換語言也不會變
+ * - 兩個都有（折扣、作廢）：「折扣：買一送一」／`Discount: BOGO`
+ *
+ * 第三種的**冒號也在字典裡**：中日文用全形，英文用半形加一個空格，
+ * 那不是同一個符號，在這裡用字串黏起來就會有一種永遠對不齊的排版。
+ *
+ * 認不得的代碼原樣顯示 —— 看到 `foo` 查得出來是哪一個漏了翻譯。
+ */
+function rowLabel(t: ReturnType<typeof useT>, r: NamedTotal): string {
+  if (!r.code) return r.name ?? '—'
+  const msg = (insightCodes as Record<string, Msg | undefined>)[r.code]
+  if (!msg) return r.name ? `${r.code}: ${r.name}` : r.code
+  // 沒填原因的作廢，後端回的 name 是 null —— 那句話也要翻。
+  return t(msg, { name: r.name ?? t(reports.noReason) })
+}
+
 function Bars({
   title,
   rows,
@@ -218,25 +245,31 @@ function Bars({
         <p className="py-4 text-center text-xs text-slate-600">{t(ui.noData)}</p>
       ) : (
         <ul className="space-y-1">
-          {shown.map((r) => (
-            <li key={r.label} className="flex items-baseline gap-2 text-sm">
-              <span className="w-32 shrink-0 truncate" title={r.label}>
-                {r.label}
-              </span>
-              <span className="w-12 shrink-0 text-right text-xs text-slate-500">
-                {r.count} {unit}
-              </span>
-              <span className="h-2 flex-1 overflow-hidden rounded bg-slate-800">
-                <span
-                  className={`block h-full ${tone === 'amber' ? 'bg-amber-600' : 'bg-sky-700'}`}
-                  style={{ width: `${(Math.abs(r.amount) / peak) * 100}%` }}
-                />
-              </span>
-              <span className="w-20 shrink-0 text-right font-mono text-xs text-slate-400">
-                {formatMoney(r.amount)}
-              </span>
-            </li>
-          ))}
+          {shown.map((r) => {
+            const label = rowLabel(t, r)
+            return (
+              <li
+                key={`${r.code ?? ''}|${r.name ?? ''}`}
+                className="flex items-baseline gap-2 text-sm"
+              >
+                <span className="w-32 shrink-0 truncate" title={label}>
+                  {label}
+                </span>
+                <span className="w-12 shrink-0 text-right text-xs text-slate-500">
+                  {r.count} {unit}
+                </span>
+                <span className="h-2 flex-1 overflow-hidden rounded bg-slate-800">
+                  <span
+                    className={`block h-full ${tone === 'amber' ? 'bg-amber-600' : 'bg-sky-700'}`}
+                    style={{ width: `${(Math.abs(r.amount) / peak) * 100}%` }}
+                  />
+                </span>
+                <span className="w-20 shrink-0 text-right font-mono text-xs text-slate-400">
+                  {formatMoney(r.amount)}
+                </span>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

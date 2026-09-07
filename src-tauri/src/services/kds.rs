@@ -45,7 +45,12 @@ pub struct KdsLine {
 pub struct KdsTicket {
     pub order_id: String,
     pub order_no: String,
-    pub channel_label: String,
+    /// 通路代碼：dine_in / takeout / delivery。
+    ///
+    /// 這裡刻意給代碼而不是「內用」那三個字 —— 廚房平板可能是中文、英文或
+    /// 日文的，而後端不知道現在是誰在看。代碼是資料，顯示文字是畫面的事，
+    /// 字典本來就在前端，翻兩份只會有一份先過時。
+    pub channel: String,
     pub table_label: Option<String>,
     /// 這張單開了多久（秒）。廚房看的是「等最久的那一張」而不是時間點。
     pub waiting_seconds: i64,
@@ -111,16 +116,10 @@ pub async fn board(ctx: &Ctx) -> AppResult<KdsBoard> {
             Some(t) => t.lines.push(line),
             None => {
                 let opened_at: String = r.get("opened_at");
-                let channel: String = r.get("channel");
                 tickets.push(KdsTicket {
                     order_id,
                     order_no: r.get("order_no"),
-                    channel_label: match channel.as_str() {
-                        "takeout" => "外帶",
-                        "delivery" => "外送",
-                        _ => "內用",
-                    }
-                    .into(),
+                    channel: r.get("channel"),
                     table_label: r.get("table_name"),
                     waiting_seconds: waited(&opened_at, &now),
                     placed_at: opened_at,
@@ -156,7 +155,7 @@ pub async fn advance(ctx: &Ctx, line_id: String, to: String) -> AppResult<KdsBoa
     let target = ORDER
         .iter()
         .position(|s| *s == to)
-        .ok_or_else(|| AppError::Validation(format!("不認得的狀態：{to}")))?;
+        .ok_or_else(|| AppError::Validation(format!("不認得的狀態：{to}").into()))?;
 
     let now = Stamp::now();
     let mut uow = ctx.db.begin_write().await?;

@@ -357,7 +357,13 @@ async fn with_no_printer_configured_the_intent_is_kept_and_said_out_loud() {
     let status = printer::queue_status(&e.ctx).await.unwrap();
     assert_eq!(status.unrouted, 1, "意圖被丟掉了");
     assert!(status.needs_attention, "沒有設定印表機卻沒有提醒任何人");
-    assert!(status.detail.contains("還沒有設定"), "{}", status.detail);
+    // 斷言的是**狀態**而不是文案 —— 句子現在在前端的字典裡（三種語言各一份），
+    // 後端只負責分類。這樣改文案不會弄紅測試，而分類錯了一定會。
+    assert_eq!(
+        status.state,
+        open_pos::services::printer::QueueState::Unrouted,
+        "有單等著印又沒有印表機，應該是 unrouted"
+    );
 
     // 設定完成之後，同一張單要自己流出去。
     e.file_printer("櫃檯").await;

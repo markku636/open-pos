@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { lanApi, type AppError, type LanStatus } from '@/shared/api'
+import { lanApi, type AppError, type LanStatus, type NetInterface } from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
-import { useT } from '@/shared/i18n'
+import { useT, type Msg } from '@/shared/i18n'
 import { ui } from '@/shared/locales/nav'
 import { system } from '@/shared/locales/system'
 
@@ -102,7 +102,7 @@ export default function LanPanel() {
         <span className={lan.bound ? 'text-emerald-400' : 'text-amber-400'}>
           {lan.bound ? '●' : '▲'}
         </span>
-        <span className="text-slate-300">{lan.detail}</span>
+        <span className="text-slate-300">{detailText(t, lan.detail)}</span>
       </div>
 
       <section>
@@ -119,7 +119,9 @@ export default function LanPanel() {
                 {i.name}
               </span>
               <span className="font-mono text-slate-300">{i.ip}</span>
-              {i.note && <span className="text-xs text-slate-600">{i.note}</span>}
+              {i.note && (
+                <span className="text-xs text-slate-600">{noteText(t, i.note)}</span>
+              )}
               {i.chosen && (
                 <span className="text-xs text-emerald-400">← {t(system.inUse)}</span>
               )}
@@ -165,4 +167,39 @@ export default function LanPanel() {
       </button>
     </div>
   )
+}
+
+/** 區網探測結果的句子。後端只回代碼，句子在這裡組才會跟著介面語言走。 */
+function detailText(
+  t: (m: Msg, p?: Record<string, string | number>) => string,
+  d: LanStatus['detail'],
+): string {
+  switch (d.code) {
+    case 'noAddress':
+      return t(system.lanNoAddress)
+    case 'bound':
+      return t(system.lanBound)
+    case 'resolveFailed':
+      return t(system.lanResolveFailed, { addr: d.addr, error: d.error })
+    default:
+      return t(system.lanConnectFailed, { addr: d.addr, error: d.error })
+  }
+}
+
+/** 這張網卡為什麼不能用。 */
+function noteText(
+  t: (m: Msg, p?: Record<string, string | number>) => string,
+  n: NonNullable<NetInterface['note']>,
+): string {
+  switch (n.code) {
+    case 'loopback':
+      return t(system.nicLoopback)
+    case 'link_local':
+      return t(system.nicLinkLocal)
+    case 'not_private':
+      return t(system.nicNotPrivate)
+    default:
+      // vendor 是專有名詞，後端一定會帶；真的沒有就退回一個通稱。
+      return t(system.nicVirtual, { vendor: n.vendor ?? 'Virtual' })
+  }
 }

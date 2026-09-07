@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { dequeue, enqueue, queued } from './offline'
 import { useBoard, type Connection } from './useBoard'
-import { kdsApi, type KdsLine, type KdsStatus, type KdsTicket } from '@/shared/api'
-import { useT } from '@/shared/i18n'
+import { kdsApi, type Channel, type KdsLine, type KdsStatus, type KdsTicket } from '@/shared/api'
+import { useT, type Msg } from '@/shared/i18n'
 import { kds } from '@/shared/locales/kds'
 
 /**
@@ -278,6 +278,32 @@ function StationTab({
   )
 }
 
+/**
+ * 通路代碼 → 單頭上的那個字。
+ *
+ * 後端只給代碼（`dine_in` / `takeout` / `delivery`），因為它不知道這台平板
+ * 設定的是哪一國語言 —— 以前那三個字是 Rust 裡寫死的中文，日文廚房的單頭
+ * 就永遠印著「外帶」。
+ *
+ * 寫成 `Record<Channel, Msg>` 而不是隨手一個物件：以後後端多一種通路，
+ * 漏了這裡就編譯不過 —— 跟字典漏一種語言會紅是同一招。
+ */
+const CHANNEL_LABELS: Record<Channel, Msg> = {
+  dine_in: kds.channelDineIn,
+  takeout: kds.channelTakeout,
+  delivery: kds.channelDelivery,
+}
+
+/**
+ * 認不得的代碼就原樣印出來。
+ *
+ * 型別上不會發生，但平板上跑的可能是舊版前端配新版後端。廚房寧可在單頭看到
+ * 一個看不懂的 `catering`，也不要因為 `undefined` 讓整面板白掉。
+ */
+function channelLabel(code: string): Msg | undefined {
+  return (CHANNEL_LABELS as Record<string, Msg | undefined>)[code]
+}
+
 function Ticket({
   ticket,
   busy,
@@ -297,16 +323,25 @@ function Ticket({
     ok: 'border-slate-700 bg-slate-900',
   }[urgency]
   const clockTone = { late: 'text-red-300', slow: 'text-amber-300', ok: 'text-slate-500' }[urgency]
+  const channel = channelLabel(ticket.channel)
 
   return (
     <section className={`rounded-lg border-2 ${tone} p-3`}>
-      <header className="flex items-baseline gap-2 border-b border-slate-700/60 pb-2">
-        <span className="font-mono text-lg">{ticket.orderNo.split('-').pop()}</span>
-        <span className="text-sm text-slate-400">{ticket.channelLabel}</span>
-        {ticket.tableLabel && <span className="text-sm text-sky-300">{ticket.tableLabel}</span>}
-        <span className={`ml-auto font-mono text-lg ${clockTone}`}>
-          {t(kds.waitMinutes, { n: mins })}
-        </span>
+      {/* ★ 單號與等待時間自己佔一列。
+          「テイクアウト」比「外帶」寬三倍，跟桌號擠在同一列會把右邊的等待
+          時間推出方塊 —— 而那個數字是廚房決定先做哪一張的唯一依據，
+          它不能因為換了語言就消失。通路與桌號退到第二列，長就讓它換行。 */}
+      <header className="border-b border-slate-700/60 pb-2">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-lg">{ticket.orderNo.split('-').pop()}</span>
+          <span className={`ml-auto font-mono text-lg ${clockTone}`}>
+            {t(kds.waitMinutes, { n: mins })}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+          <span className="text-slate-400">{channel ? t(channel) : ticket.channel}</span>
+          {ticket.tableLabel && <span className="text-sky-300">{ticket.tableLabel}</span>}
+        </div>
       </header>
 
       <ul className="mt-2 space-y-1">

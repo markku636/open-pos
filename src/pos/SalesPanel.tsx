@@ -8,7 +8,7 @@ import {
   type SalesQuery,
   type SalesReport,
 } from '@/shared/api'
-import { useT } from '@/shared/i18n'
+import { useT, type Msg } from '@/shared/i18n'
 import { ui } from '@/shared/locales/nav'
 import { sales } from '@/shared/locales/sales'
 import { formatMoney } from '@/shared/money'
@@ -124,18 +124,15 @@ export default function SalesPanel() {
         />
         <div className="flex gap-1">
           {/* key 用通路代碼而不是標籤：標籤會跟著語言變，拿它當 key
-              等於每換一次語言就把這四顆按鈕全部拆掉重建。 */}
-          {(
-            [
-              [null, sales.channelAll],
-              ['dine_in', sales.channelDineIn],
-              ['takeout', sales.channelTakeout],
-              ['delivery', sales.channelDelivery],
-            ] as const
-          ).map(([v, label]) => (
+              等於每換一次語言就把這四顆按鈕全部拆掉重建。
+
+              標籤走 channelLabel()，跟下面列表那一欄同一個來源 ——
+              按鈕寫「テイクアウト」、列表寫別的字，是同一份資料看起來
+              像兩種東西的最快方法。 */}
+          {([null, 'dine_in', 'takeout', 'delivery'] as const).map((v) => (
             <Preset
               key={v ?? 'all'}
-              label={t(label)}
+              label={v === null ? t(sales.channelAll) : channelLabel(v, t)}
               active={channel === v}
               onClick={() => setChannel(v)}
             />
@@ -249,7 +246,14 @@ function SaleRow({
         <span className="w-16 shrink-0 font-mono text-xs text-slate-400">
           {sale.billNo.split('-').pop()}
         </span>
-        <span className="w-10 shrink-0 text-xs text-slate-500">{sale.channelLabel}</span>
+        {/* 這一欄以前是 w-10（40px），因為後端直接吐「內用」上來，兩個中文字剛好。
+            現在字是這邊查出來的，而最長的是日文的「テイクアウト」六個全形字 ——
+            40px 裝不下。與其為了省 40px 另編一套只有這一欄看得懂的縮寫，
+            不如放寬到 w-20，讓它跟上面的篩選按鈕講同一個詞；
+            truncate 只是保險，換到更寬的字型時寧可截字也不要把整列擠歪。 */}
+        <span className="w-20 shrink-0 truncate text-xs text-slate-500">
+          {channelLabel(sale.channel, t)}
+        </span>
         {sale.tableLabel && (
           <span className="shrink-0 text-xs text-sky-300">{sale.tableLabel}</span>
         )}
@@ -383,6 +387,29 @@ function Preset({
       {label}
     </button>
   )
+}
+
+/**
+ * 通路代碼 → 那個通路的字。
+ *
+ * 後端只回代碼（`dine_in`），字在這裡對出來。它以前是後端算好一起吐上來的，
+ * 於是英文與日文的店員在一切正常的路徑上看到「內用」—— 而後端從頭到尾
+ * 就不知道現在是誰在看這台機器，它也不該知道。
+ *
+ * 認不得的代碼原樣顯示：之後多一個通路（自營外送平台之類）時，
+ * 畫面上看到 `grab_food` 比看到一個籠統的「其他」好查 ——
+ * 至少看得出來是新東西，不是壞掉。這跟出單原因（PrinterSettings）與
+ * 班別狀態（ShiftPanel）那兩張表的處理方式是一致的。
+ */
+function channelLabel(code: string, t: (m: Msg) => string): string {
+  const msg = (
+    {
+      dine_in: sales.channelDineIn,
+      takeout: sales.channelTakeout,
+      delivery: sales.channelDelivery,
+    } as Record<string, Msg | undefined>
+  )[code]
+  return msg ? t(msg) : code
 }
 
 /** 最近 n 天（含今天）。用瀏覽器的本地日期 —— UTC 會在凌晨少算一天。 */

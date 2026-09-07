@@ -717,15 +717,18 @@ fn action(creating: bool) -> AuditAction {
 fn validate_name(name: &str, what: &str) -> AppResult<()> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(AppError::Validation(format!("{what}不能是空的")));
+        return Err(AppError::Validation(format!("{what}不能是空的").into()));
     }
     // 出單機一行只有 32（58mm）或 48（80mm）個半形字元，中文佔兩格。
     // 太長的品名在廚房單上會被截掉，廚師就看不出是哪一道菜了。
     if trimmed.chars().count() > 40 {
-        return Err(AppError::Validation(format!(
-            "{what}太長（{} 字）—— 出單機一行放不下，請用 20 字以內",
-            trimmed.chars().count()
-        )));
+        return Err(AppError::Validation(
+            format!(
+                "{what}太長（{} 字）—— 出單機一行放不下，請用 20 字以內",
+                trimmed.chars().count()
+            )
+            .into(),
+        ));
     }
     Ok(())
 }
@@ -737,9 +740,9 @@ fn validate_price(price: i64) -> AppResult<()> {
     // 金額是整數元（見 ADR 0001），這裡順手擋掉離譜的輸入 ——
     // 收銀員多按一個 0 是很常見的手誤。
     if price > 1_000_000 {
-        return Err(AppError::Validation(format!(
-            "價格 {price} 元看起來不對，請確認是否多按了一個 0"
-        )));
+        return Err(AppError::Validation(
+            format!("價格 {price} 元看起來不對，請確認是否多按了一個 0").into(),
+        ));
     }
     Ok(())
 }

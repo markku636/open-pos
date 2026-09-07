@@ -20,8 +20,13 @@ pub enum AppError {
     NotFound(String),
 
     /// 使用者輸入不合法（金額為負、品項不存在、數量為 0）。
+    ///
+    /// 吃 `Msg` 而不是 `String`：`Msg` 有 `From<String>` 與 `From<&str>`，
+    /// 所以既有的 `"...".into()` 呼叫點原封不動繼續編譯，新的與改過的走
+    /// `msg!("key", n = 3)` 拿到三語翻譯。遷移因此可以一次一處，
+    /// 而不是「全部改完才編得起來」。
     #[error("{0}")]
-    Validation(String),
+    Validation(crate::i18n::Msg),
 
     /// 樂觀鎖版本不符 / 狀態機不允許（單已結帳還想加點）。前端應重讀後重試。
     #[error("{0}")]

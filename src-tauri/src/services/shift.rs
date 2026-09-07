@@ -435,10 +435,9 @@ pub struct CashMovementReq {
 pub async fn record_cash_movement(ctx: &Ctx, req: CashMovementReq) -> AppResult<()> {
     rbac::require(&ctx.db, &ctx.actor, PERM_CLOSE).await?;
     if !["paid_in", "paid_out", "drop", "adjust"].contains(&req.kind.as_str()) {
-        return Err(AppError::Validation(format!(
-            "不認得的現金異動：{}",
-            req.kind
-        )));
+        return Err(AppError::Validation(
+            format!("不認得的現金異動：{}", req.kind).into(),
+        ));
     }
     if req.amount <= 0 {
         return Err(AppError::Validation("金額必須大於 0".into()));

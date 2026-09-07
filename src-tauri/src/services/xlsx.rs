@@ -20,7 +20,7 @@
 use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
 
 use crate::error::{AppError, AppResult};
-use crate::services::sales::SalesReport;
+use crate::services::sales::{channel_label, SalesReport};
 use crate::services::shift::DayReport;
 
 /// 一整份日報表。回傳寫出去的檔案路徑。
@@ -151,7 +151,9 @@ pub fn write_sales(report: &SalesReport, dir: &std::path::Path) -> AppResult<Str
                 Cell::Text(hhmm(x.settled_at.as_deref())),
                 Cell::Text(x.bill_no.clone()),
                 Cell::Text(x.order_no.clone()),
-                Cell::Text(x.channel_label.clone()),
+                // `Sale` 現在只帶通路代碼（標籤是畫面的事）。這份活頁簿整張是
+                // 中文文件，所以在這裡把代碼轉成中文，而不是印 `dine_in` 給老闆看。
+                Cell::Text(channel_label(&x.channel).into()),
                 Cell::Text(x.table_label.clone().unwrap_or_default()),
                 Cell::Text(x.split_label.clone().unwrap_or_default()),
                 Cell::Num(x.guest_count),
