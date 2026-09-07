@@ -656,6 +656,16 @@ pub async fn delete_dining_plan(ctx: State<'_, Ctx>, id: String) -> AppResult<()
     services::dining::delete(&ctx, id).await
 }
 
+/// 把一桌切換成吃到飽（`planId` 給 null 就是恢復單點）。
+#[tauri::command]
+pub async fn apply_dining_plan(
+    ctx: State<'_, Ctx>,
+    session_id: String,
+    plan_id: Option<String>,
+) -> AppResult<()> {
+    services::dining::apply_to_session(&ctx, session_id, plan_id).await
+}
+
 /// 有哪些金流商可以選、各自要哪些憑證欄位。
 ///
 /// 不需要權限 —— 它回的是一張寫死在程式裡的表，沒有任何一家店的資料。

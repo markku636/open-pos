@@ -239,6 +239,7 @@ pub fn run() {
             commands::list_dining_plans,
             commands::upsert_dining_plan,
             commands::delete_dining_plan,
+            commands::apply_dining_plan,
             commands::get_locale,
             commands::set_locale,
             commands::sales_history,

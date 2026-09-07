@@ -1310,4 +1310,11 @@ export const diningApi = {
   upsert: (input: DiningPlanInput) =>
     transport.call<DiningPlan>('upsert_dining_plan', { input }),
   remove: (id: string) => transport.call<void>('delete_dining_plan', { id }),
+  /**
+   * 把一桌切換成吃到飽。`planId` 給 null 就是恢復單點。
+   *
+   * 計時從**這一刻**開始，不是從入座開始 —— 客人常常先坐下看菜單再決定。
+   */
+  applyToSession: (sessionId: string, planId: string | null) =>
+    transport.call<void>('apply_dining_plan', { sessionId, planId }),
 }

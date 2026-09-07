@@ -9,6 +9,7 @@ import OrderScreen, { type Seat } from './OrderScreen'
 import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
 import GatewayPanel from './GatewayPanel'
+import DiningPlanPanel from './DiningPlanPanel'
 import { LocaleProvider, LOCALE_LABELS, LOCALES, useLocale, useT, type Locale, type Msg } from '@/shared/i18n'
 import { nav, ui } from '@/shared/locales/nav'
 import { statusbar } from '@/shared/locales/statusbar'
@@ -25,7 +26,7 @@ import {
   type PrintQueueStatus, localeApi} from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'tables' | 'bills' | 'sales' | 'menu' | 'printer' | 'gateway' | 'shift' | 'backup' | 'status'
+type Tab = 'order' | 'tables' | 'bills' | 'sales' | 'menu' | 'printer' | 'gateway' | 'plan' | 'shift' | 'backup' | 'status'
 
 /**
  * 最外層：把語言設定讀進來，再交給 `LocaleProvider`。
@@ -115,6 +116,9 @@ function Shell() {
         <TabButton active={tab === 'gateway'} onClick={() => setTab('gateway')}>
           {t(nav.gateway)}
         </TabButton>
+        <TabButton active={tab === 'plan'} onClick={() => setTab('plan')}>
+          {t(nav.plan)}
+        </TabButton>
         <TabButton active={tab === 'shift'} onClick={() => setTab('shift')}>
           {t(nav.shift)}
         </TabButton>
@@ -163,6 +167,7 @@ function Shell() {
         {tab === 'menu' && <MenuManager />}
         {tab === 'printer' && <PrinterSettings />}
         {tab === 'gateway' && <GatewayPanel />}
+        {tab === 'plan' && <DiningPlanPanel />}
         {tab === 'shift' && <ShiftPanel />}
         {tab === 'backup' && <BackupPanel />}
         {tab === 'status' && <StatusPanel info={info} error={infoError} />}

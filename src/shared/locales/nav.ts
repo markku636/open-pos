@@ -31,6 +31,8 @@ export const nav = {
   menu: { 'zh-TW': '商品維護', en: 'Menu', ja: '商品管理' },
   printer: { 'zh-TW': '出單機', en: 'Printers', ja: 'プリンター' },
   gateway: { 'zh-TW': '金流', en: 'Payments', ja: '決済' },
+  // 吃到飽方案。標籤要短 —— 頂欄已經十個分頁了。
+  plan: { 'zh-TW': '吃到飽', en: 'Buffet', ja: '食べ放題' },
   shift: { 'zh-TW': '班別日結', en: 'Shifts', ja: '日次締め' },
   backup: { 'zh-TW': '備份', en: 'Backup', ja: 'バックアップ' },
   status: { 'zh-TW': '系統狀態', en: 'System', ja: 'システム' },

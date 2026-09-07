@@ -173,6 +173,59 @@ impl LineOrigin {
     }
 }
 
+/// 把一桌切換成吃到飽（或取消）。
+///
+/// `plan_id = None` 就是恢復單點 —— 已經點過的 0 元行**不會**跟著漲回原價，
+/// 那些是當時的事實。之後點的才會照原價收。
+///
+/// # 計時從這一刻開始，不是從入座開始
+///
+/// 客人常常先坐下看菜單再決定。Airレジ 的 L.O. 也是「放題プラン注文から
+/// XX 分後」—— 從點方案那一刻算，不是入座。
+pub async fn apply_to_session(
+    ctx: &Ctx,
+    session_id: String,
+    plan_id: Option<String>,
+) -> AppResult<()> {
+    let now = Stamp::now();
+    let mut uow = ctx.db.begin_write().await?;
+
+    if let Some(pid) = &plan_id {
+        // 停用或刪掉的方案不該還能套上去 —— 否則老闆停用了它，
+        // 外場還是套得到，而他不會知道為什麼。
+        let ok = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM dining_plans
+              WHERE id = ?1 AND deleted_at IS NULL AND is_active = 1",
+        )
+        .bind(pid)
+        .fetch_one(uow.conn())
+        .await?;
+        if ok == 0 {
+            return Err(AppError::NotFound("這個方案已經停用了".into()));
+        }
+    }
+
+    let n = sqlx::query(
+        "UPDATE table_sessions
+            SET dining_plan_id = ?2,
+                plan_started_at = CASE WHEN ?2 IS NULL THEN NULL ELSE ?3 END,
+                updated_at = ?3
+          WHERE id = ?1 AND status <> 'closed'",
+    )
+    .bind(&session_id)
+    .bind(&plan_id)
+    .bind(now.iso())
+    .execute(uow.conn())
+    .await?
+    .rows_affected();
+
+    if n == 0 {
+        return Err(AppError::NotFound("找不到這一桌，或它已經清桌了".into()));
+    }
+    uow.commit().await?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------- 維護
 
 pub async fn list(ctx: &Ctx) -> AppResult<Vec<DiningPlan>> {

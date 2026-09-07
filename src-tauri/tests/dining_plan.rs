@@ -143,21 +143,17 @@ async fn seed_buffet(ctx: &Ctx) -> Shop {
     }
 }
 
-/// 把一張單的桌位 session 綁上方案（正式流程之後由開桌 UI 做）。
+/// 把一張單所在的桌切換成吃到飽 —— 走正式的服務層 API，不是直接寫 SQL。
 async fn apply_plan(ctx: &Ctx, order_id: &str, plan_id: &str) {
-    let now = Stamp::now();
-    let mut uow = ctx.db.begin_write().await.unwrap();
-    sqlx::query(
-        "UPDATE table_sessions SET dining_plan_id = ?2, plan_started_at = ?3
-          WHERE id = (SELECT table_session_id FROM orders WHERE id = ?1)",
-    )
-    .bind(order_id)
-    .bind(plan_id)
-    .bind(now.iso())
-    .execute(uow.conn())
-    .await
-    .unwrap();
-    uow.commit().await.unwrap();
+    let session =
+        sqlx::query_scalar::<_, String>("SELECT table_session_id FROM orders WHERE id = ?1")
+            .bind(order_id)
+            .fetch_one(ctx.db.reader())
+            .await
+            .unwrap();
+    dining::apply_to_session(ctx, session, Some(plan_id.to_string()))
+        .await
+        .unwrap();
 }
 
 async fn open_at_table(ctx: &Ctx, guests: i64) -> String {
