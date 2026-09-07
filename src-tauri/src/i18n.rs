@@ -249,6 +249,14 @@ macro_rules! msg {
 /// 空字串代表「這個語言還沒翻」，會自動退回中文，不會顯示空白。
 static CATALOG: &[(&str, [&str; 3])] = &[
     (
+        "gateway.credentials_incomplete",
+        [
+            "憑證還沒填完，不能啟用這條金流線。",
+            "Credentials are incomplete; this gateway cannot be enabled yet.",
+            "認証情報が未入力のため、この決済を有効にできません。",
+        ],
+    ),
+    (
         "gateway.hash_iv_len",
         [
             "藍新 HashIV 必須是 16 個字元，你貼的是 {n} 個",

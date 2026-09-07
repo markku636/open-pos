@@ -9,6 +9,52 @@
 Almost every POS sold to small and mid-sized restaurants in Taiwan is a closed system on a contract: a monthly fee, locked-in hardware, and no way to get your data back.
 open-pos is meant to be the opposite: download one installer, zero monthly fee, your data on your own disk, all the source code open.
 
+---
+
+## In plain words: what is this?
+
+**A till and ordering system that runs on a computer in your own shop.**
+
+| You might ask | Answer |
+| --- | --- |
+| Does it cost anything? | No. No monthly fee, no trial period, no "pro" tier. |
+| Does it work if the internet drops? | **Yes.** Everything runs on the computer in your shop. There is no cloud. |
+| Who holds my sales data? | You do, on your own disk. We cannot see it, and there is nowhere for us to look. |
+| Do I need special hardware? | An ordinary Windows PC and a network receipt printer (about NT$3,000). |
+| What if I am not good with computers? | Taking orders, checking out and closing the till are just buttons. For **the initial setup**, get someone technical to help. |
+| Who fixes it if it breaks? | There is no support desk. This is an open-source project; please open an issue. Better to say so up front. |
+
+### What it does for you
+
+* **Orders**: menu on the left, the bill on the right. Add items, remove them, discount, comp.
+* **Tables**: who is seated, how long, and how much is on each table, at a glance.
+* **Checkout**: change is worked out for you. Cards and LINE Pay too. **Splitting the bill works.**
+* **Printing**: kitchen and drinks bar each get their own ticket. If a ticket fails to print it tells you on screen; it never goes quiet.
+* **Shift handover**: you count the cash drawer first, then the system tells you the difference. Showing the answer first would defeat the point.
+* **Day close**: takings, payment methods and best sellers are saved as that day's record, and never change afterwards.
+* **Backups**: hourly, automatically. Leave a USB stick plugged in and it keeps a second copy there.
+
+### Getting started
+
+1. Download the installer and run it, like any other program
+2. Open it and click "load the demo menu" to have a play
+3. If it suits you, enter your own menu
+4. Connect the printer and hit "test print" - **if that slip reads correctly, you are set up**
+
+Step by step: 👉 **[Ten-Minute Setup Guide](docs/quickstart.md)**
+
+### Three things to know first
+
+* **It is still in development.** The features are all there, but there is no
+  release yet. Before trusting it with real trade, run a full day through it.
+* **Buy a UPS.** About NT$1,000, and it will do more to stop you losing data
+  than any line of code in this project.
+* **The data lives on that one machine.** So backups are not optional.
+  Leave a USB stick in it and the rest is handled.
+
+---
+
+
 **Current status: v0.1.0, in development. The v1.0 feature set is complete, but there is no release build yet.
 If you want to use it, build it from source yourself, and please do not run a real business on it yet.**
 

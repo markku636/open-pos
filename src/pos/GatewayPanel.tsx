@@ -9,9 +9,16 @@ import {
   type PaymentMethod,
   type ProviderDef,
 } from "@/shared/api";
-import { useT } from "@/shared/i18n";
+import { useT, type Msg } from "@/shared/i18n";
 // 字典取名 gw 而不是 gateway：Editor 的 prop 就叫 gateway，同名會把字典遮掉。
 import { gateway as gw } from "@/shared/locales/gateway";
+import {
+  gwField,
+  gwFieldHint,
+  gwListSep,
+  gwProvider,
+  gwProviderNote,
+} from "@/shared/locales/gatewayFields";
 import { ui } from "@/shared/locales/nav";
 
 /**
@@ -166,7 +173,7 @@ function Card({
             )}
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
-            {g.providerLabel}
+            {providerName(t, g.provider)}
             {g.paymentMethodName &&
               ` · ${t(gw.methodOf, { name: g.paymentMethodName })}`}
           </p>
@@ -189,7 +196,7 @@ function Card({
         <dl className="mt-2 space-y-0.5 border-t border-slate-800 pt-2 text-xs">
           {g.fields.map((f) => (
             <div key={f.key} className="flex justify-between">
-              <dt className="text-slate-500">{f.label}</dt>
+              <dt className="text-slate-500">{fieldLabel(t, f.key)}</dt>
               <dd
                 className={
                   f.isSet ? "font-mono text-slate-400" : "text-amber-400/80"
@@ -206,7 +213,9 @@ function Card({
         <p className="mt-2 text-xs text-amber-400/80">
           {/* 缺的欄位名稱是後端給的（憑證欄位定義只有後端一份），這裡不另外翻，
               但串起來的頓號要翻 —— 頓號是中日文的標點，英文清單得用逗號。 */}
-          {t(gw.missing, { fields: g.missing.join(t(gw.fieldSeparator)) })}
+          {t(gw.missing, {
+            fields: g.missing.map((k) => fieldLabel(t, k)).join(t(gwListSep)),
+          })}
         </p>
       )}
     </section>
@@ -231,7 +240,8 @@ function Editor({
     gateway?.provider ?? providers[0]?.code ?? "manual",
   );
   const [displayName, setDisplayName] = useState(
-    gateway?.displayName ?? providers[0]?.label ?? "",
+    gateway?.displayName ??
+      (providers[0] ? providerName(t, providers[0].code) : ""),
   );
   const [methodId, setMethodId] = useState(gateway?.paymentMethodId ?? "");
   const [sandbox, setSandbox] = useState(gateway?.isSandbox ?? true);
@@ -298,16 +308,16 @@ function Editor({
                 setProvider(code);
                 setCreds({});
                 const p = providers.find((x) => x.code === code);
-                if (p) setDisplayName(p.label);
+                if (p) setDisplayName(providerName(t, p.code));
               }}
             >
               {providers.map((p) => (
                 <option key={p.code} value={p.code}>
-                  {p.label}
+                  {providerName(t, p.code)}
                 </option>
               ))}
             </select>
-            {def && <p className="mt-1 text-xs text-slate-500">{def.note}</p>}
+            {def && <p className="mt-1 text-xs text-slate-500">{providerNote(t, def.code)}</p>}
           </label>
 
           <label className="block">
@@ -349,7 +359,7 @@ function Editor({
               {fields.map((f) => (
                 <label key={f.key} className="block">
                   <span className="mb-1 block text-xs text-slate-400">
-                    {f.label}
+                    {fieldLabel(t, f.key)}
                   </span>
                   <input
                     className="w-full rounded bg-slate-800 px-3 py-2 font-mono text-sm"
@@ -367,7 +377,7 @@ function Editor({
                         : t(gw.credUnset)
                     }
                   />
-                  <p className="mt-1 text-xs text-slate-600">{f.hint}</p>
+                  <p className="mt-1 text-xs text-slate-600">{fieldHint(t, f.key)}</p>
                 </label>
               ))}
             </fieldset>
@@ -422,4 +432,31 @@ function Editor({
       </div>
     </div>
   );
+}
+
+/**
+ * 金流商名稱 / 說明 / 欄位標籤 / 欄位提示。
+ *
+ * 後端只回代碼與鍵值，文案在 gatewayFields 字典裡。查不到就把原始鍵印出來 ——
+ * 那很醜，但比一個空白格好：空白格看起來像資料沒載到，原始鍵一眼就看得出
+ * 是字典少了一條。
+ */
+function providerName(t: (m: Msg) => string, code: string): string {
+  const m = (gwProvider as Record<string, Msg | undefined>)[code];
+  return m ? t(m) : code;
+}
+
+function providerNote(t: (m: Msg) => string, code: string): string {
+  const m = (gwProviderNote as Record<string, Msg | undefined>)[code];
+  return m ? t(m) : "";
+}
+
+function fieldLabel(t: (m: Msg) => string, key: string): string {
+  const m = (gwField as Record<string, Msg | undefined>)[key];
+  return m ? t(m) : key;
+}
+
+function fieldHint(t: (m: Msg) => string, key: string): string {
+  const m = (gwFieldHint as Record<string, Msg | undefined>)[key];
+  return m ? t(m) : "";
 }

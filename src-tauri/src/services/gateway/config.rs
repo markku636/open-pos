@@ -31,47 +31,21 @@ const PERM_SETTINGS: &str = "settings.store";
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialField {
+    /// 欄位鍵（`hash_key`、`channel_secret`…）。
+    ///
+    /// **標籤與說明都不在這裡** —— 它們是文案，屬於畫面。後端不知道看的人
+    /// 要哪一種語言，前端拿這個 key 去字典查（見 `src/shared/locales/gateway.ts`）。
     pub key: &'static str,
-    pub label: &'static str,
-    /// 給店家看的一句話：這個值要去哪裡拿。
-    pub hint: &'static str,
     /// 已經填過了（畫面上顯示末四碼，不回明文）。
     pub is_set: bool,
     pub tail: Option<String>,
 }
 
 /// 這個金流商要哪幾個欄位。
-fn fields_for(provider: &str) -> &'static [(&'static str, &'static str, &'static str)] {
+fn fields_for(provider: &str) -> &'static [&'static str] {
     match provider {
-        "linepay" => &[
-            (
-                "channel_id",
-                "Channel ID",
-                "LINE Pay 商家後台 → 管理付款連結 → 線上技術串接資訊",
-            ),
-            (
-                "channel_secret",
-                "Channel Secret",
-                "LINE Pay 商家後台，跟 Channel ID 同一頁。這一組等於你的收款權限，不要外流",
-            ),
-        ],
-        "newebpay" => &[
-            (
-                "merchant_id",
-                "商店代號 MerchantID",
-                "藍新後台 → 商店資料設定",
-            ),
-            (
-                "hash_key",
-                "HashKey",
-                "藍新後台 → 商店資料設定 → 串接程式設定",
-            ),
-            (
-                "hash_iv",
-                "HashIV",
-                "藍新後台 → 商店資料設定 → 串接程式設定，跟 HashKey 一起給的",
-            ),
-        ],
+        "linepay" => &["channel_id", "channel_secret"],
+        "newebpay" => &["merchant_id", "hash_key", "hash_iv"],
         // manual 不需要任何憑證 —— 錢是在另一台實體刷卡機上收的。
         _ => &[],
     }
@@ -83,7 +57,6 @@ pub struct GatewayView {
     pub id: String,
     /// manual / linepay / newebpay
     pub provider: String,
-    pub provider_label: String,
     pub display_name: String,
     pub payment_method_id: Option<String>,
     pub payment_method_name: Option<String>,
@@ -135,12 +108,11 @@ fn view_of(r: &sqlx::sqlite::SqliteRow) -> GatewayView {
 
     let fields: Vec<CredentialField> = fields_for(&provider)
         .iter()
-        .map(|(key, label, hint)| {
-            let value = stored.get(*key).filter(|v| !v.is_empty());
+        .map(|key| {
+            let key = *key;
+            let value = stored.get(key).filter(|v| !v.is_empty());
             CredentialField {
                 key,
-                label,
-                hint,
                 is_set: value.is_some(),
                 // 只回末四碼。夠讓人確認「是不是我貼的那一組」，
                 // 又不足以拿去用。
@@ -155,12 +127,13 @@ fn view_of(r: &sqlx::sqlite::SqliteRow) -> GatewayView {
     let missing = fields
         .iter()
         .filter(|f| !f.is_set)
-        .map(|f| f.label.to_string())
+        // 回**鍵值**不回標籤 —— 畫面上那句「還缺 X、Y」由前端用字典組，
+        // 連中間的頓號都要跟著語言換（英文用逗號）。
+        .map(|f| f.key.to_string())
         .collect();
 
     GatewayView {
         id: r.get("id"),
-        provider_label: provider_label(&provider).into(),
         provider,
         display_name: r.get("display_name"),
         payment_method_id: r.get("payment_method_id"),
@@ -228,13 +201,16 @@ pub async fn upsert(ctx: &Ctx, input: GatewayInput) -> AppResult<GatewayView> {
     let want_active = input.is_active.unwrap_or(false);
     let missing: Vec<&str> = fields_for(&input.provider)
         .iter()
-        .filter(|(k, _, _)| !creds.contains_key(*k))
-        .map(|(_, label, _)| *label)
+        .filter(|k| !creds.contains_key(**k))
+        .copied()
         .collect();
     if want_active && !missing.is_empty() {
-        return Err(AppError::Validation(
-            format!("還缺 {} 才能啟用。", missing.join("、")).into(),
-        ));
+        // 不在這裡列出缺哪幾個 —— 那需要欄位標籤，而標籤是文案、在前端字典裡。
+        // 畫面上本來就用 GatewayView.missing 列得清清楚楚（連中間的頓號都跟著
+        // 語言換），這個錯誤只是最後一道防線，講清楚「不能啟用」就夠了。
+        return Err(AppError::Validation(crate::msg!(
+            "gateway.credentials_incomplete"
+        )));
     }
 
     let creds_json = serde_json::to_string(&creds).unwrap_or_else(|_| "{}".into());
@@ -340,14 +316,10 @@ pub fn providers() -> Vec<ProviderDef> {
         .iter()
         .map(|code| ProviderDef {
             code,
-            label: provider_label(code),
-            note: provider_note(code),
             fields: fields_for(code)
                 .iter()
-                .map(|(key, label, hint)| CredentialField {
+                .map(|key| CredentialField {
                     key,
-                    label,
-                    hint,
                     // 還沒有這一筆，所以一定沒設定過。
                     is_set: false,
                     tail: None,
@@ -360,10 +332,8 @@ pub fn providers() -> Vec<ProviderDef> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderDef {
+    /// `manual` / `linepay` / `newebpay`。名稱與說明都在前端字典裡。
     pub code: &'static str,
-    pub label: &'static str,
-    /// 給店家看的一段話：這條線適合誰、需要先去辦什麼。
-    pub note: &'static str,
     pub fields: Vec<CredentialField>,
 }
 
@@ -396,14 +366,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_provider_says_where_to_get_its_credentials() {
-        // 一個只寫著「Channel Secret」的欄位，對沒串接過的店家等於沒有寫。
+    fn every_online_provider_declares_its_credential_keys() {
+        // 標籤與說明搬到前端字典之後，這裡只剩結構的保證：
+        // 每一條要連線的金流線都必須宣告它需要哪幾個欄位。
+        //
+        // 「每個欄位都要說清楚去哪裡拿」那條保證沒有不見，它搬到
+        // src/shared/locales/gateway.test.ts —— 因為文案現在在那邊。
         for p in ["linepay", "newebpay"] {
             let fields = fields_for(p);
             assert!(!fields.is_empty(), "{p} 沒有定義欄位");
-            for (key, label, hint) in fields {
-                assert!(!key.is_empty() && !label.is_empty());
-                assert!(hint.contains("後台"), "{p}/{key} 沒說去哪裡拿：{hint}");
+            for key in fields {
+                assert!(!key.is_empty(), "{p} 有空的欄位鍵");
+                assert!(
+                    key.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                    "{p}/{key} 的鍵要能直接當字典的 key 用"
+                );
             }
         }
         // manual 不需要憑證：錢是在另一台實體刷卡機上收的。

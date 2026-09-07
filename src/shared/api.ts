@@ -1202,19 +1202,21 @@ export const salesApi = {
 
 /** 一個金流商需要的一個憑證欄位。**永遠不含明文。** */
 export interface CredentialField {
+  /**
+   * 欄位鍵（`hash_key`、`channel_secret`…）。
+   *
+   * **標籤與說明不在這裡** —— 它們是文案，用這個 key 去
+   * `@/shared/locales/gatewayFields` 查（`gwField` / `gwFieldHint`）。
+   */
   key: string;
-  label: string;
-  /** 這個值要去哪裡拿。 */
-  hint: string;
+  /** 已經填過了。畫面上顯示末四碼，永遠不回明文。 */
   isSet: boolean;
-  /** 末四碼。夠讓人確認「是不是我貼的那一組」，不足以拿去用。 */
   tail: string | null;
 }
 
 export interface Gateway {
   id: string;
   provider: string;
-  providerLabel: string;
   displayName: string;
   paymentMethodId: string | null;
   paymentMethodName: string | null;
@@ -1238,10 +1240,8 @@ export interface GatewayInput {
 
 /** 一個可以選的金流商，以及它要哪些憑證欄位。 */
 export interface ProviderDef {
+  /** `manual` / `linepay` / `newebpay`。名稱與說明在 gatewayFields 字典裡。 */
   code: string;
-  label: string;
-  /** 這條線適合誰、需要先去辦什麼。 */
-  note: string;
   fields: CredentialField[];
 }
 
