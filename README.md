@@ -4,6 +4,8 @@
 
 > 地端、開源、免費的餐飲 POS 點餐系統。一台電腦 + 一台出單機就能開店。
 
+> ☕ 這個工具免費且開源。如果幫上忙，可以 [請我喝杯咖啡](#贊助開源)。
+
 台灣中小餐飲的 POS 幾乎都是綁約的封閉系統：月租費、硬體綁定、資料拿不回來。
 open-pos 想做的是相反的東西 —— 下載一個安裝檔、零月租、資料在自己的硬碟上、程式碼全開源。
 
@@ -38,6 +40,17 @@ open-pos 想做的是相反的東西 —— 下載一個安裝檔、零月租、
 先看看它怎麼運作，再決定要不要自己建菜單。
 
 ---
+
+## 贊助開源
+
+這個工具免費且開源。如果它幫你省下了時間，可以請我喝杯咖啡，讓後續的更新繼續做下去。
+
+[![PayPal $5](https://img.shields.io/badge/PayPal-%245-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8B7GRXA6UJH36)
+[![PayPal $10](https://img.shields.io/badge/PayPal-%2410-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8LBTFUBBF2CHS)
+[![PayPal $15](https://img.shields.io/badge/PayPal-%2415-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/A653DD46GEU4W)
+[![PayPal $25](https://img.shields.io/badge/PayPal-%2425-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/Y5WPSXVGH3YS4)
+
+其他金額請走 [PayPal.Me](https://paypal.me/226network)。
 
 ## 長什麼樣子
 
@@ -536,17 +549,6 @@ KDS 卡在便宜平板與便宜 AP）。先讓「一台電腦一台印表機就�
 軟體按 MIT 授權以「現況」提供。**電子發票模組的使用者須自行對帳並自負法遵責任。**
 
 ---
-
-## ☕ 贊助開源
-
-這個工具免費且開源。如果它幫你省下了時間，可以請我喝杯咖啡，讓後續的更新繼續做下去。
-
-[![PayPal $5](https://img.shields.io/badge/PayPal-%245-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8B7GRXA6UJH36)
-[![PayPal $10](https://img.shields.io/badge/PayPal-%2410-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8LBTFUBBF2CHS)
-[![PayPal $15](https://img.shields.io/badge/PayPal-%2415-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/A653DD46GEU4W)
-[![PayPal $25](https://img.shields.io/badge/PayPal-%2425-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/Y5WPSXVGH3YS4)
-
-其他金額請走 [PayPal.Me](https://paypal.me/226network)。
 
 ## 授權
 

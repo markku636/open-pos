@@ -4,6 +4,8 @@
 
 > An on-premise, open-source, free restaurant POS. One computer plus one receipt printer (出單機) and you can open for business.
 
+> ☕ Free and open source. If it helps, [buy me a coffee](#support-open-source).
+
 Almost every POS sold to small and mid-sized restaurants in Taiwan is a closed system on a contract: a monthly fee, locked-in hardware, and no way to get your data back.
 open-pos is meant to be the opposite: download one installer, zero monthly fee, your data on your own disk, all the source code open.
 
@@ -37,6 +39,17 @@ Connect one network ESC/POS printer, press 「測試列印」(Test Print) on the
 The first launch is empty. There is a 「載入示範菜單與桌位」(Load demo menu and tables) button on the order page: see how it works first, then decide whether to build your own menu.
 
 ---
+
+## Support open source
+
+This tool is free and open source. If it saved you time, buy me a coffee so the updates keep coming.
+
+[![PayPal $5](https://img.shields.io/badge/PayPal-%245-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8B7GRXA6UJH36)
+[![PayPal $10](https://img.shields.io/badge/PayPal-%2410-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8LBTFUBBF2CHS)
+[![PayPal $15](https://img.shields.io/badge/PayPal-%2415-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/A653DD46GEU4W)
+[![PayPal $25](https://img.shields.io/badge/PayPal-%2425-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/Y5WPSXVGH3YS4)
+
+For any other amount, use [PayPal.Me](https://paypal.me/226network).
 
 ## What it looks like
 
@@ -546,17 +559,6 @@ Get "one computer and one printer is enough to open" solidly usable first.
 The software is provided as is under the MIT license. **Users of the e-invoice module are responsible for their own reconciliation and their own legal compliance.**
 
 ---
-
-## ☕ Support open source
-
-This tool is free and open source. If it saved you time, buy me a coffee so the updates keep coming.
-
-[![PayPal $5](https://img.shields.io/badge/PayPal-%245-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8B7GRXA6UJH36)
-[![PayPal $10](https://img.shields.io/badge/PayPal-%2410-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/8LBTFUBBF2CHS)
-[![PayPal $15](https://img.shields.io/badge/PayPal-%2415-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/A653DD46GEU4W)
-[![PayPal $25](https://img.shields.io/badge/PayPal-%2425-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/ncp/payment/Y5WPSXVGH3YS4)
-
-For any other amount, use [PayPal.Me](https://paypal.me/226network).
 
 ## License
 
