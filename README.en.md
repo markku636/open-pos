@@ -46,6 +46,17 @@ The order screen. Menu on the left, cart on the right, so the cashier's motion
 runs one way and never doubles back. Tiles are deliberately large, because at
 peak hours people are standing and poking with one finger.
 
+![Checkout and change](docs/images/payment.webp)
+
+Checkout. The customer hands over 500 against 330 due, and the 170 change stays
+on screen to be counted out. The row on top is the split-bill mode: whole bill /
+even split / fixed amount / by item, matching what counter staff actually get asked.
+
+![Table map](docs/images/tables.webp)
+
+The table map. Each card answers only three questions: is it free, how much is on
+it, how long have they been sitting.
+
 ![Payment gateway settings](docs/images/gateway.webp)
 
 Payment settings. Credentials come back as the last four characters only, never
