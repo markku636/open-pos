@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
 import { api, transport, type AppInfo } from '@/shared/api'
-import { APP_NAME, REPO, TAGLINE, TOOL_PAGE_URL } from '@/shared/brand'
+import { APP_NAME, REPO, TOOL_PAGE_URL } from '@/shared/brand'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { system } from '@/shared/locales/system'
 import {
   autoCheckEnabled,
   checkForUpdate,
@@ -36,6 +39,7 @@ export default function AboutDialog({
   info: AppInfo | null
   onClose: () => void
 }) {
+  const t = useT()
   const [check, setCheck] = useState<CheckState>({ phase: 'idle' })
   const [copied, setCopied] = useState(false)
   const [auto, setAuto] = useState(autoCheckEnabled)
@@ -56,7 +60,7 @@ export default function AboutDialog({
   // 這兩項是「升級後打不開」與「資料存到 OneDrive 裡」這兩類問題的第一線索。
   const versionInfo = [
     `${APP_NAME} v${__APP_VERSION__}`,
-    info ? `backend ${info.version} / schema ${info.schemaVersion}` : 'backend 未連線',
+    info ? `backend ${info.version} / schema ${info.schemaVersion}` : t(system.backendOffline),
     info ? `data ${info.dataDir}` : null,
     `transport ${transport.kind}`,
     navigator.userAgent,
@@ -75,9 +79,9 @@ export default function AboutDialog({
   }
 
   const links = [
-    { icon: IconExternal, label: 'GitHub 專案', url: `https://github.com/${REPO}` },
-    { icon: IconBook, label: '工具介紹頁', url: TOOL_PAGE_URL },
-    { icon: IconBug, label: '回報問題', url: `https://github.com/${REPO}/issues/new` },
+    { icon: IconExternal, label: t(system.linkRepo), url: `https://github.com/${REPO}` },
+    { icon: IconBook, label: t(system.linkToolPage), url: TOOL_PAGE_URL },
+    { icon: IconBug, label: t(system.linkIssue), url: `https://github.com/${REPO}/issues/new` },
   ]
 
   return (
@@ -99,19 +103,19 @@ export default function AboutDialog({
           <div className="text-lg font-semibold">{APP_NAME}</div>
 
           <div className="flex items-center gap-1 font-mono text-xs text-slate-500 tabular-nums">
-            <span>版本 {__APP_VERSION__}</span>
+            <span>{t(system.version, { v: __APP_VERSION__ })}</span>
             <button
               type="button"
               onClick={() => void copyVersion()}
-              title="複製版本資訊（回報問題時附上）"
+              title={t(system.copyVersion)}
               className="grid h-5 w-5 place-items-center rounded text-slate-500 hover:bg-slate-800 hover:text-slate-200"
             >
               <IconCopy />
             </button>
-            {copied && <span className="text-emerald-400">已複製</span>}
+            {copied && <span className="text-emerald-400">{t(system.copied)}</span>}
           </div>
 
-          <p className="mt-1 text-sm text-slate-400">{TAGLINE}</p>
+          <p className="mt-1 text-sm text-slate-400">{t(system.tagline)}</p>
 
           {info && (
             // 資料目錄要完整顯示、不能截斷：「資料存到 OneDrive 資料夾裡」
@@ -133,16 +137,14 @@ export default function AboutDialog({
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-400 hover:underline"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden />
-                有新版 v{check.info.version}，點擊前往下載
+                {t(system.updateAvailable, { v: check.info.version })}
               </button>
             )}
             {check.phase === 'latest' && (
-              <div className="text-sm text-emerald-400">已是最新版本</div>
+              <div className="text-sm text-emerald-400">{t(system.upToDate)}</div>
             )}
             {check.phase === 'failed' && (
-              <div className="text-sm text-slate-500">
-                查不到（離線或已達 GitHub 上限），稍後再試
-              </div>
+              <div className="text-sm text-slate-500">{t(system.checkFailed)}</div>
             )}
             <button
               type="button"
@@ -150,7 +152,7 @@ export default function AboutDialog({
               onClick={() => void runCheck()}
               className="rounded bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700 disabled:opacity-50"
             >
-              {check.phase === 'checking' ? '檢查中…' : '檢查更新'}
+              {check.phase === 'checking' ? t(system.checking) : t(system.checkUpdate)}
             </button>
           </div>
 
@@ -167,14 +169,14 @@ export default function AboutDialog({
                 setAutoCheckEnabled(e.target.checked)
               }}
             />
-            開機時自動檢查更新
+            {t(system.autoCheck)}
           </label>
 
           <div className="mt-3 flex items-center gap-1">
             {links.map((l) => (
               <button
                 type="button"
-                key={l.label}
+                key={l.url}
                 onClick={() => openUrl(l.url)}
                 className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-slate-400 hover:bg-slate-800 hover:text-slate-200"
               >
@@ -184,9 +186,7 @@ export default function AboutDialog({
             ))}
           </div>
 
-          <div className="mt-3 text-[11px] text-slate-600">
-            MIT 授權 · Tauri + React 打造
-          </div>
+          <div className="mt-3 text-[11px] text-slate-600">{t(system.license)}</div>
         </div>
 
         <button
@@ -194,7 +194,7 @@ export default function AboutDialog({
           className="mt-5 w-full rounded bg-slate-800 py-2 text-sm hover:bg-slate-700"
           onClick={onClose}
         >
-          關閉
+          {t(ui.close)}
         </button>
       </div>
     </div>

@@ -246,6 +246,12 @@ async fn dispatch(ctx: &Ctx, name: &str, args: Value) -> AppResult<Value> {
             to_value(services::app::app_info(ctx).await?)?,
         ),
         "health" => (Access::Public, to_value(services::app::health(ctx).await?)?),
+        // 介面語言。KDS 與顧客手機都要它 —— 不然廚房平板永遠是中文，
+        // 而店家在收銀機上把語言改成日文之後，會完全不知道為什麼廚房沒跟著變。
+        //
+        // 唯讀，而且回的只是 "zh-TW" / "en" / "ja" 其中一個字串，
+        // 不含任何營業資料。**設定**語言仍然只走 Tauri IPC（見 commands）。
+        "get_locale" => (Access::Public, to_value(services::locale::get(ctx).await?)?),
         // 唯讀的菜單樹。KDS 與掃碼點餐都要它 —— 客人手機上要看得到品名與價格。
         // 商品的**維護**（新增 / 改價 / 刪除）刻意不在這裡，只走 Tauri IPC。
         "menu_tree" => (

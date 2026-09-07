@@ -45,8 +45,8 @@ pub async fn get(ctx: &Ctx) -> AppResult<Locale> {
 /// 換語言。
 pub async fn set(ctx: &Ctx, locale: Locale) -> AppResult<()> {
     let now = crate::core::clock::Stamp::now();
-    let value = serde_json::to_string(locale.as_str())
-        .expect("語言代碼是固定的字串字面值，序列化不會失敗");
+    let value =
+        serde_json::to_string(locale.as_str()).expect("語言代碼是固定的字串字面值，序列化不會失敗");
     let mut uow = ctx.db.begin_write().await?;
     sqlx::query(
         "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)

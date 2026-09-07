@@ -10,7 +10,8 @@ import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
 import GatewayPanel from './GatewayPanel'
 import { LocaleProvider, LOCALE_LABELS, LOCALES, useLocale, useT, type Locale } from '@/shared/i18n'
-import { nav } from '@/shared/locales/nav'
+import { nav, ui } from '@/shared/locales/nav'
+import { statusbar } from '@/shared/locales/statusbar'
 import SalesPanel from './SalesPanel'
 import ShiftPanel from './ShiftPanel'
 import {
@@ -127,7 +128,7 @@ function Shell() {
         {queue?.needsAttention && (
           <button
             className="mr-2 flex items-center gap-1.5 rounded bg-red-950/70 px-3 py-1.5 text-sm text-red-200 hover:bg-red-900/70"
-            title="點一下看出單狀況"
+            title={t(statusbar.queueBadgeTitle)}
             onClick={() => setTab('printer')}
           >
             <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" />
@@ -201,6 +202,7 @@ function TabButton({
  * 就能自己看出是哪一段斷了。
  */
 function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | null }) {
+  const t = useT()
   const [health, setHealth] = useState<Health | null>(null)
 
   useEffect(() => {
@@ -212,59 +214,64 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
       .catch(() => setHealth(null))
   }, [])
 
+  // 後端那一欄有三種狀態：查到了、連不上、還在查。三種都要說得出來 ——
+  // 空白會被當成「後端沒裝」，而那正是最不想讓人誤會的一件事。
+  const backendValue = info
+    ? t(statusbar.backendVersion, { v: info.version, s: info.schemaVersion })
+    : error
+      ? t(statusbar.backendFailed, { msg: error.message })
+      : t(ui.loading)
+
   return (
     <div className="max-w-3xl space-y-6">
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          版本
+          {t(statusbar.sectionVersion)}
         </h2>
         <dl className="space-y-1 font-mono text-sm">
-          <Row label="前端" value={__APP_VERSION__} />
-          <Row label="傳輸層" value={transport.kind} />
-          <Row
-            label="後端"
-            value={
-              info
-                ? `${info.version}（schema ${info.schemaVersion}）`
-                : error
-                  ? `連線失敗：${error.message}`
-                  : '查詢中…'
-            }
-          />
-          {info && <Row label="資料目錄" value={info.dataDir} />}
+          <Row label={t(statusbar.frontend)} value={__APP_VERSION__} />
+          <Row label={t(statusbar.transport)} value={transport.kind} />
+          <Row label={t(statusbar.backend)} value={backendValue} />
+          {info && <Row label={t(statusbar.dataDir)} value={info.dataDir} />}
         </dl>
       </section>
 
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          目前進度
+          {t(statusbar.sectionProgress)}
         </h2>
         {/*
           把路線圖放在這裡而不是頂欄：頂欄是收銀員整天盯著的地方，
           任何不影響「現在這一單」的字都是雜訊。想知道進度的人會自己來看這頁。
         */}
+        {/* 句型只翻一次（`statusbar.ready`），會變的只有功能名稱：多一項功能
+            就多一個短語，不必再翻一次整句。 */}
         <ul className="space-y-1 text-sm text-slate-400">
-          <li>● 點餐、結帳、商品維護：可以用了</li>
-          <li>● 出單機（ESC/POS 網路型）：可以用了</li>
-          <li>● 班別交接與日結：可以用了</li>
-          <li>● 備份與還原：可以用了</li>
-          <li>● 桌位、分帳、退款：可以用了</li>
-          <li>● KDS 廚房顯示（含斷線佇列）：可以用了</li>
-          <li>● 營運分析與稽核查詢：可以用了</li>
+          {[
+            statusbar.capOrdering,
+            statusbar.capPrinter,
+            statusbar.capShift,
+            statusbar.capBackup,
+            statusbar.capTables,
+            statusbar.capKds,
+            statusbar.capReports,
+          ].map((cap) => (
+            <li key={cap.en}>● {t(statusbar.ready, { what: t(cap) })}</li>
+          ))}
         </ul>
       </section>
 
       {/* 區網放在診斷之前：裝機第一天會用到的是它，而診斷是事後才需要的。 */}
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          區網連線（廚房平板）
+          {t(statusbar.sectionLan)}
         </h2>
         <LanPanel />
       </section>
 
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          回報問題
+          {t(statusbar.sectionReport)}
         </h2>
         <DiagnosticsBox />
       </section>
@@ -272,7 +279,7 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
       {health && (
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            健康檢查
+            {t(statusbar.sectionHealth)}
           </h2>
           <ul className="space-y-1 text-sm">
             {health.items.map((i) => (
@@ -301,16 +308,19 @@ function StatusPanel({ info, error }: { info: AppInfo | null; error: AppError | 
  * 所以要讓店家能一鍵拿到一份**貼得進 issue** 的純文字。
  */
 function DiagnosticsBox() {
+  const t = useT()
   const [text, setText] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
 
   return (
     <div>
+      {/* 三個節點是同一段話，中間那句換顏色。英文的第一則結尾留了一個空格 ——
+          JSX 會把 {} 之間的換行整個吃掉，補不回來。 */}
       <p className="mb-2 text-xs text-slate-500">
-        內容包含版本、設定、健康檢查、失敗的列印工作與最近的 log。
-        <span className="text-slate-400">不含品名、客人資訊或帳單明細</span>
-        ，而且不會自動上傳任何東西。
+        {t(statusbar.diagIncludes)}
+        <span className="text-slate-400">{t(statusbar.diagExcludes)}</span>
+        {t(statusbar.diagNoUpload)}
       </p>
       <div className="flex flex-wrap gap-2">
         <button
@@ -321,11 +331,11 @@ function DiagnosticsBox() {
             diagnosticsApi
               .report()
               .then(setText)
-              .catch((e: AppError) => setText(`讀不到診斷資訊：${e.message}`))
+              .catch((e: AppError) => setText(t(statusbar.diagFailed, { msg: e.message })))
               .finally(() => setBusy(false))
           }}
         >
-          產生診斷資訊
+          {t(statusbar.diagGenerate)}
         </button>
         {text && (
           <button
@@ -338,7 +348,7 @@ function DiagnosticsBox() {
               setTimeout(() => setCopied(false), 2000)
             }}
           >
-            {copied ? '已複製' : '複製全部'}
+            {t(copied ? statusbar.copied : statusbar.copyAll)}
           </button>
         )}
       </div>

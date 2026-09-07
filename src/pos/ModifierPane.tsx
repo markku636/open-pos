@@ -1,6 +1,9 @@
 import { useState } from 'react'
 
 import { menuApi, type MenuTree, type Modifier, type ModifierGroup } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { order } from '@/shared/locales/order'
 import { parseMoney } from '@/shared/money'
 
 /**
@@ -26,6 +29,7 @@ export default function ModifierPane({
   busy: boolean
   run: (fn: () => Promise<unknown>) => Promise<void>
 }) {
+  const t = useT()
   const [name, setName] = useState('')
   const [multiple, setMultiple] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
@@ -47,26 +51,24 @@ export default function ModifierPane({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <h2 className="mb-2 text-sm text-slate-400">
-        選項群組
-        <span className="ml-2 text-xs text-slate-600">
-          建好之後到品項那邊勾選要問哪幾組
-        </span>
+        {t(order.groupsTitle)}
+        <span className="ml-2 text-xs text-slate-600">{t(order.groupsHint)}</span>
       </h2>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded bg-slate-900/60 p-2">
         <input
           className="min-w-32 flex-1 rounded bg-slate-800 px-3 py-2 text-sm"
-          placeholder="群組名稱（甜度 / 加購）"
+          placeholder={t(order.groupNamePlaceholder)}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && add()}
         />
         <div className="flex gap-1">
           <Toggle active={!multiple} onClick={() => setMultiple(false)}>
-            單選（必選一個）
+            {t(order.singleToggle)}
           </Toggle>
           <Toggle active={multiple} onClick={() => setMultiple(true)}>
-            複選（可不選）
+            {t(order.multipleToggle)}
           </Toggle>
         </div>
         <button
@@ -74,18 +76,18 @@ export default function ModifierPane({
           disabled={busy || !name.trim()}
           onClick={add}
         >
-          新增群組
+          {t(order.addGroup)}
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tree.modifierGroups.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-600">
-            還沒有選項群組。
+            {t(order.noGroups)}
             <br />
-            建一組「甜度」（單選）跟一組「加購」（複選），
+            {t(order.noGroupsExample)}
             <br />
-            點餐時就問得出「珍奶半糖少冰加珍珠」。
+            {t(order.noGroupsResult)}
           </p>
         ) : (
           tree.modifierGroups.map((g) => (
@@ -117,6 +119,7 @@ function GroupRow({
   onToggle: () => void
   run: (fn: () => Promise<unknown>) => Promise<void>
 }) {
+  const t = useT()
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
 
@@ -145,31 +148,31 @@ function GroupRow({
         </button>
         <span className="flex-1 font-medium">{group.name}</span>
         <span className="text-xs text-slate-500">
-          {group.selectionType === 'single' ? '單選' : '複選'}
-          {group.minSelect > 0 && <span className="ml-1 text-amber-400">必選</span>}
+          {group.selectionType === 'single' ? t(order.single) : t(order.multiple)}
+          {group.minSelect > 0 && (
+            <span className="ml-1 text-amber-400">{t(order.required)}</span>
+          )}
         </span>
         <span className="w-16 text-right text-xs text-slate-600">
-          {group.options.length} 個選項
+          {t(order.optionCount, { n: group.options.length })}
         </span>
         <button
           className="px-1 text-xs text-slate-600 hover:text-red-400"
           disabled={busy}
-          title="刪掉整組。已經賣出去的訂單不受影響（存的是當時的名稱與價格）"
+          title={t(order.deleteGroupTitle)}
           onClick={() => {
-            if (!confirm(`要刪掉「${group.name}」整組嗎？\n\n掛著它的品項會一起解除。`)) return
+            if (!confirm(t(order.deleteGroupConfirm, { name: group.name }))) return
             void run(() => menuApi.deleteModifierGroup(group.id))
           }}
         >
-          刪除
+          {t(ui.delete)}
         </button>
       </div>
 
       {expanded && (
         <div className="border-t border-slate-800 px-3 py-2 pl-10">
           {group.options.length === 0 && (
-            <p className="mb-2 text-xs text-slate-600">
-              還沒有選項。加價填 0 就是免費選項（半糖、去冰）。
-            </p>
+            <p className="mb-2 text-xs text-slate-600">{t(order.noOptions)}</p>
           )}
 
           {group.options.map((o) => (
@@ -179,14 +182,14 @@ function GroupRow({
           <div className="mt-2 flex gap-2">
             <input
               className="flex-1 rounded bg-slate-800 px-2 py-1.5 text-sm"
-              placeholder="選項名稱（半糖 / 加珍珠）"
+              placeholder={t(order.optionNamePlaceholder)}
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && add()}
             />
             <input
               className="w-24 rounded bg-slate-800 px-2 py-1.5 text-right text-sm"
-              placeholder="加價"
+              placeholder={t(order.surcharge)}
               inputMode="numeric"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
@@ -197,7 +200,7 @@ function GroupRow({
               disabled={busy || !name.trim()}
               onClick={add}
             >
-              加選項
+              {t(order.addOption)}
             </button>
           </div>
         </div>
@@ -217,6 +220,7 @@ function OptionRow({
   busy: boolean
   run: (fn: () => Promise<unknown>) => Promise<void>
 }) {
+  const t = useT()
   const setDefault = () =>
     void run(() =>
       menuApi.upsertModifier({
@@ -234,7 +238,7 @@ function OptionRow({
     <div className="flex items-center gap-2 py-1 text-sm">
       <span className="flex-1">{option.name}</span>
       <span className="w-16 text-right text-slate-400">
-        {option.price === 0 ? '免費' : `+${option.price}`}
+        {option.price === 0 ? t(order.free) : `+${option.price}`}
       </span>
       {/* 預設值會在點餐畫面上先勾起來。多數客人不改甜度，
           而每一杯都要點一下「正常糖」很煩。 */}
@@ -243,10 +247,10 @@ function OptionRow({
           option.isDefault ? 'bg-sky-800 text-sky-100' : 'text-slate-600 hover:text-slate-300'
         }`}
         disabled={busy}
-        title="點餐時先勾起來"
+        title={t(order.defaultTitle)}
         onClick={setDefault}
       >
-        預設
+        {t(order.defaultTag)}
       </button>
       <button
         className="px-1 text-xs text-slate-600 hover:text-red-400"

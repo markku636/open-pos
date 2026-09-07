@@ -9,6 +9,10 @@ import {
   type PaymentMethod,
   type ProviderDef,
 } from "@/shared/api";
+import { useT } from "@/shared/i18n";
+// 字典取名 gw 而不是 gateway：Editor 的 prop 就叫 gateway，同名會把字典遮掉。
+import { gateway as gw } from "@/shared/locales/gateway";
+import { ui } from "@/shared/locales/nav";
 
 /**
  * 金流設定。
@@ -27,6 +31,7 @@ import {
  * 不需要把 secret 重打一次，而 secret 也不會躺在 webview 的記憶體裡。
  */
 export default function GatewayPanel() {
+  const t = useT();
   const [rows, setRows] = useState<Gateway[] | null>(null);
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [providers, setProviders] = useState<ProviderDef[]>([]);
@@ -54,12 +59,7 @@ export default function GatewayPanel() {
   }, [load]);
 
   const remove = async (g: Gateway) => {
-    if (
-      !confirm(
-        `刪除「${g.displayName}」？\n已經收過的款不會受影響，之後不能再用這條線收款。`,
-      )
-    )
-      return;
+    if (!confirm(t(gw.deleteConfirm, { name: g.displayName }))) return;
     try {
       await gatewayApi.remove(g.id);
       await load();
@@ -71,15 +71,11 @@ export default function GatewayPanel() {
   return (
     <div className="h-full space-y-4 overflow-y-auto pr-2">
       <section className="rounded border border-amber-800/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-200/90">
-        <p className="font-medium">
-          金流憑證存在這台電腦的資料庫裡，沒有加密。
-        </p>
+        <p className="font-medium">{t(gw.warnTitle)}</p>
         <p className="mt-1 text-amber-200/70">
-          也就是說：
-          <span className="text-amber-100">
-            備份出去的 .db 檔等於你的收款權限
-          </span>
-          。 請把它當成跟保險箱鑰匙一樣的東西保管，不要丟到公開的雲端資料夾。
+          {t(gw.warnLead)}
+          <span className="text-amber-100">{t(gw.warnBackup)}</span>
+          {t(gw.warnTail)}
         </p>
       </section>
 
@@ -90,20 +86,20 @@ export default function GatewayPanel() {
       )}
 
       <div className="flex items-center gap-3">
-        <h2 className="text-sm text-slate-400">已設定的金流</h2>
+        <h2 className="text-sm text-slate-400">{t(gw.configured)}</h2>
         <button
           className="rounded bg-emerald-800 px-3 py-1.5 text-sm hover:bg-emerald-700"
           onClick={() => setEditing("new")}
         >
-          ＋ 新增
+          ＋ {t(ui.add)}
         </button>
       </div>
 
       {rows && rows.length === 0 && (
         <p className="rounded bg-slate-900/40 px-3 py-10 text-center text-sm text-slate-600">
-          還沒有設定任何金流。
+          {t(gw.emptyTitle)}
           <br />
-          沒有設定也能營業 —— 現金與「自己抄授權碼的刷卡機」本來就不需要串接。
+          {t(gw.emptyHint)}
         </p>
       )}
 
@@ -144,6 +140,7 @@ function Card({
   onEdit: () => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   return (
     <section className="rounded border border-slate-800 bg-slate-900/40 p-3">
       <div className="flex items-start gap-2">
@@ -152,38 +149,39 @@ function Card({
             <h3 className="truncate font-medium">{g.displayName}</h3>
             {g.isActive ? (
               <span className="shrink-0 rounded bg-emerald-900/70 px-1.5 py-0.5 text-xs text-emerald-300">
-                啟用中
+                {t(gw.active)}
               </span>
             ) : (
               <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-500">
-                停用
+                {t(gw.inactive)}
               </span>
             )}
             {g.isSandbox && (
               <span
                 className="shrink-0 rounded bg-amber-900/60 px-1.5 py-0.5 text-xs text-amber-300"
-                title="測試環境不會真的收到錢"
+                title={t(gw.sandboxTip)}
               >
-                測試
+                {t(gw.sandboxBadge)}
               </span>
             )}
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
             {g.providerLabel}
-            {g.paymentMethodName && ` · 收款方式：${g.paymentMethodName}`}
+            {g.paymentMethodName &&
+              ` · ${t(gw.methodOf, { name: g.paymentMethodName })}`}
           </p>
         </div>
         <button
           className="shrink-0 text-xs text-slate-400 hover:text-slate-200"
           onClick={onEdit}
         >
-          設定
+          {t(ui.edit)}
         </button>
         <button
           className="shrink-0 text-xs text-red-400/70 hover:text-red-300"
           onClick={onRemove}
         >
-          刪除
+          {t(ui.delete)}
         </button>
       </div>
 
@@ -197,7 +195,7 @@ function Card({
                   f.isSet ? "font-mono text-slate-400" : "text-amber-400/80"
                 }
               >
-                {f.isSet ? `••••${f.tail}` : "未設定"}
+                {f.isSet ? `••••${f.tail}` : t(gw.fieldUnset)}
               </dd>
             </div>
           ))}
@@ -206,7 +204,9 @@ function Card({
 
       {g.missing.length > 0 && (
         <p className="mt-2 text-xs text-amber-400/80">
-          還缺 {g.missing.join("、")}，填完才能啟用。
+          {/* 缺的欄位名稱是後端給的（憑證欄位定義只有後端一份），這裡不另外翻，
+              但串起來的頓號要翻 —— 頓號是中日文的標點，英文清單得用逗號。 */}
+          {t(gw.missing, { fields: g.missing.join(t(gw.fieldSeparator)) })}
         </p>
       )}
     </section>
@@ -226,6 +226,7 @@ function Editor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useT();
   const [provider, setProvider] = useState(
     gateway?.provider ?? providers[0]?.code ?? "manual",
   );
@@ -277,11 +278,15 @@ function Editor({
         className="max-h-full w-full max-w-lg overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-4 text-lg">{gateway ? "設定金流" : "新增金流"}</h2>
+        <h2 className="mb-4 text-lg">
+          {gateway ? t(gw.editTitle) : t(gw.newTitle)}
+        </h2>
 
         <div className="space-y-4">
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">金流商</span>
+            <span className="mb-1 block text-xs text-slate-500">
+              {t(gw.provider)}
+            </span>
             <select
               className="w-full rounded bg-slate-800 px-3 py-2 text-sm disabled:opacity-60"
               value={provider}
@@ -306,39 +311,41 @@ function Editor({
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">顯示名稱</span>
+            <span className="mb-1 block text-xs text-slate-500">
+              {t(gw.displayName)}
+            </span>
             <input
               className="w-full rounded bg-slate-800 px-3 py-2 text-sm"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="收銀員在結帳畫面上看到的就是這個"
+              placeholder={t(gw.displayNameHint)}
             />
           </label>
 
           <label className="block">
             <span className="mb-1 block text-xs text-slate-500">
-              對應的收款方式
+              {t(gw.methodField)}
             </span>
             <select
               className="w-full rounded bg-slate-800 px-3 py-2 text-sm"
               value={methodId}
               onChange={(e) => setMethodId(e.target.value)}
             >
-              <option value="">（不綁定）</option>
+              <option value="">{t(gw.methodNone)}</option>
               {methods.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-slate-500">
-              綁定之後，結帳選這個收款方式就會走這條線。日結報表上也照這個分類。
-            </p>
+            <p className="mt-1 text-xs text-slate-500">{t(gw.methodHint)}</p>
           </label>
 
           {fields.length > 0 && (
             <fieldset className="space-y-3 rounded border border-slate-800 p-3">
-              <legend className="px-1 text-xs text-slate-500">憑證</legend>
+              <legend className="px-1 text-xs text-slate-500">
+                {t(gw.credentials)}
+              </legend>
               {fields.map((f) => (
                 <label key={f.key} className="block">
                   <span className="mb-1 block text-xs text-slate-400">
@@ -356,8 +363,8 @@ function Editor({
                     // 又不足以拿去用。留空就是不動它。
                     placeholder={
                       f.isSet
-                        ? `已設定 ••••${f.tail}（留空不修改）`
-                        : "尚未設定"
+                        ? t(gw.credSet, { tail: f.tail ?? "" })
+                        : t(gw.credUnset)
                     }
                   />
                   <p className="mt-1 text-xs text-slate-600">{f.hint}</p>
@@ -374,9 +381,9 @@ function Editor({
                 onChange={(e) => setSandbox(e.target.checked)}
               />
               <span>
-                測試環境
+                {t(gw.sandboxLabel)}
                 <span className="ml-1 text-xs text-slate-500">
-                  （不會真的收到錢）
+                  {t(gw.sandboxNote)}
                 </span>
               </span>
             </label>
@@ -386,7 +393,7 @@ function Editor({
                 checked={active}
                 onChange={(e) => setActive(e.target.checked)}
               />
-              <span>啟用</span>
+              <span>{t(gw.enable)}</span>
             </label>
           </div>
 
@@ -402,14 +409,14 @@ function Editor({
             className="rounded bg-slate-800 px-4 py-2 text-sm"
             onClick={onClose}
           >
-            取消
+            {t(ui.cancel)}
           </button>
           <button
             className="rounded bg-emerald-700 px-4 py-2 text-sm hover:bg-emerald-600 disabled:opacity-40"
             disabled={busy}
             onClick={() => void save()}
           >
-            儲存
+            {t(ui.save)}
           </button>
         </div>
       </div>

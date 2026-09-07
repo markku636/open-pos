@@ -12,6 +12,9 @@ import {
   type DenomCount,
   type ShiftReport,
 } from '@/shared/api'
+import { useT, type Msg } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { shift } from '@/shared/locales/shift'
 import { formatMoney } from '@/shared/money'
 import { hhmm } from '@/shared/time'
 
@@ -34,6 +37,7 @@ const DENOMINATIONS = [1000, 500, 200, 100, 50, 10, 5, 1]
  * 「今天收了多少、對不對得起來、有沒有人動了不該動的錢」。
  */
 export default function ShiftPanel() {
+  const t = useT()
   const [view, setView] = useState<View>('shift')
 
   const [status, setStatus] = useState<DayStatus | null>(null)
@@ -76,7 +80,7 @@ export default function ShiftPanel() {
   })).filter((c) => c.count > 0)
   const countedTotal = countList.reduce((s, c) => s + c.denomination * c.count, 0)
 
-  const shift = status?.shift ?? null
+  const openShift = status?.shift ?? null
   const dayClosed = status?.status === 'closed' || status?.status === 'locked'
 
   if (view !== 'shift') {
@@ -108,47 +112,44 @@ export default function ShiftPanel() {
 
       <section className="flex flex-wrap items-center gap-4 rounded border border-slate-800 bg-slate-900/40 px-4 py-3">
         <div>
-          <div className="text-xs text-slate-500">營業日</div>
+          <div className="text-xs text-slate-500">{t(shift.businessDate)}</div>
           <div className="font-mono text-lg">{status?.businessDate ?? '—'}</div>
         </div>
         <div>
-          <div className="text-xs text-slate-500">狀態</div>
+          <div className="text-xs text-slate-500">{t(shift.status)}</div>
           <div className={dayClosed ? 'text-amber-300' : 'text-emerald-300'}>
-            {dayStatusLabel(status?.status)}
+            {dayStatusLabel(t, status?.status)}
           </div>
         </div>
-        {shift && (
+        {openShift && (
           <>
             <div>
-              <div className="text-xs text-slate-500">目前班別</div>
-              <div className="font-mono">{shift.shiftNo}</div>
+              <div className="text-xs text-slate-500">{t(shift.currentShift)}</div>
+              <div className="font-mono">{openShift.shiftNo}</div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">開班時間</div>
-              <div className="font-mono text-sm">{hhmm(shift.openedAt)}</div>
+              <div className="text-xs text-slate-500">{t(shift.openedAt)}</div>
+              <div className="font-mono text-sm">{hhmm(openShift.openedAt)}</div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">準備金</div>
-              <div className="font-mono">{formatMoney(shift.openingFloat)}</div>
+              <div className="text-xs text-slate-500">{t(shift.openingFloat)}</div>
+              <div className="font-mono">{formatMoney(openShift.openingFloat)}</div>
             </div>
           </>
         )}
         <span className="ml-auto text-xs text-slate-600">
-          今天已關 {status?.closedShifts ?? 0} 班
+          {t(shift.closedShiftsToday, { n: status?.closedShifts ?? 0 })}
         </span>
       </section>
 
       {/* ─── 開班 ─────────────────────────────────────── */}
-      {!shift && !dayClosed && (
+      {!openShift && !dayClosed && (
         <section className="rounded border border-slate-800 bg-slate-900/40 p-4">
-          <h2 className="mb-1 text-sm font-semibold text-slate-300">開班</h2>
-          <p className="mb-3 text-xs text-slate-500">
-            準備金是抽屜裡先放的零錢。它會被記成一筆現金異動 ——
-            不記的話，關班時抽屜裡的錢從哪裡來就查不出來。
-          </p>
+          <h2 className="mb-1 text-sm font-semibold text-slate-300">{t(shift.openShift)}</h2>
+          <p className="mb-3 text-xs text-slate-500">{t(shift.openHint)}</p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-xs text-slate-400">
-              準備金
+              {t(shift.openingFloat)}
               <input
                 className="w-32 rounded bg-slate-800 px-3 py-2 text-right font-mono text-lg"
                 inputMode="numeric"
@@ -161,22 +162,20 @@ export default function ShiftPanel() {
               disabled={busy}
               onClick={() => void run(() => shiftApi.open(Number(openingFloat) || 0))}
             >
-              開班
+              {t(shift.openShift)}
             </button>
           </div>
         </section>
       )}
 
       {/* ─── 關班（盲盤）─────────────────────────────── */}
-      {shift && (
+      {openShift && (
         <section className="rounded border border-slate-800 bg-slate-900/40 p-4">
-          <h2 className="mb-1 text-sm font-semibold text-slate-300">關班盤點</h2>
+          <h2 className="mb-1 text-sm font-semibold text-slate-300">{t(shift.countTitle)}</h2>
           <p className="mb-3 text-xs text-slate-500">
-            照面額把抽屜裡的錢數一遍。
-            <span className="text-slate-400">
-              系統會等你數完才顯示應有金額與差異
-            </span>
-            —— 先顯示的話，短少的人會直接照抄。
+            {t(shift.countHintLead)}
+            <span className="text-slate-400">{t(shift.countHintStrong)}</span>
+            {t(shift.countHintTail)}
           </p>
 
           <div className="grid max-w-2xl grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
@@ -199,12 +198,12 @@ export default function ShiftPanel() {
 
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div>
-              <div className="text-xs text-slate-500">數到的總額</div>
+              <div className="text-xs text-slate-500">{t(shift.countedTotal)}</div>
               <div className="font-mono text-2xl">{formatMoney(countedTotal)}</div>
             </div>
             <input
               className="min-w-[12rem] flex-1 rounded bg-slate-800 px-3 py-2 text-sm"
-              placeholder="備註（差異原因、交接對象…）"
+              placeholder={t(shift.notePlaceholder)}
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
@@ -220,7 +219,7 @@ export default function ShiftPanel() {
                 })
               }
             >
-              關班
+              {t(shift.closeShift)}
             </button>
           </div>
         </section>
@@ -230,13 +229,15 @@ export default function ShiftPanel() {
       {closed && (
         <section className="rounded border border-slate-700 bg-slate-900 p-4">
           <div className="mb-3 flex items-baseline gap-3">
-            <h2 className="text-sm font-semibold text-slate-300">{closed.shiftNo} 關班結果</h2>
+            <h2 className="text-sm font-semibold text-slate-300">
+              {t(shift.closeResult, { no: closed.shiftNo })}
+            </h2>
             <span className="text-xs text-slate-500">{closed.businessDate}</span>
             <button
               className="ml-auto text-xs text-slate-500 hover:text-slate-300"
               onClick={() => setClosed(null)}
             >
-              關閉
+              {t(ui.close)}
             </button>
           </div>
           <ReportBody report={closed} />
@@ -247,27 +248,27 @@ export default function ShiftPanel() {
       <section className="flex flex-wrap gap-2">
         <button
           className="rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700 disabled:opacity-40"
-          disabled={busy || !shift}
-          title="不關班，中途看目前的數字"
+          disabled={busy || !openShift}
+          title={t(shift.xReportHint)}
           onClick={() =>
             void run(async () => {
               setClosed(await shiftApi.xReport())
             })
           }
         >
-          X 報表（中途查看）
+          {t(shift.xReport)}
         </button>
         <button
           className="rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700 disabled:opacity-40"
           disabled={busy || dayClosed}
-          title="所有班別都關完之後才能日結"
+          title={t(shift.closeDayHint)}
           onClick={() =>
             void run(async () => {
               setDay(await shiftApi.closeDay())
             })
           }
         >
-          日結（Z 報表）
+          {t(shift.closeDay)}
         </button>
       </section>
 
@@ -275,29 +276,29 @@ export default function ShiftPanel() {
         <section className="rounded border border-slate-700 bg-slate-900 p-4">
           <div className="mb-3 flex items-baseline gap-3">
             <h2 className="text-sm font-semibold text-slate-300">
-              {day.businessDate} 日結
+              {t(shift.dayTitle, { date: day.businessDate })}
             </h2>
             <span className="font-mono text-xs text-slate-500">{day.zReportNo}</span>
             <button
               className="ml-auto rounded bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700"
               disabled={busy}
-              title="給記帳的人。Excel 開起來中文不會亂碼，金額是數值可以直接加總"
+              title={t(shift.exportCsvHint)}
               onClick={() =>
                 void run(async () => {
-                  const dir = prompt('匯出到哪個資料夾？例如 D: 或一個現有的資料夾')?.trim()
+                  const dir = prompt(t(shift.exportDirPrompt))?.trim()
                   if (!dir) return
                   const path = await reportApi.exportDayCsv(day.businessDate, dir)
-                  setError(`已匯出：${path}`)
+                  setError(t(shift.exported, { path }))
                 })
               }
             >
-              匯出 CSV
+              {t(shift.exportCsv)}
             </button>
             <button
               className="text-xs text-slate-500 hover:text-slate-300"
               onClick={() => setDay(null)}
             >
-              關閉
+              {t(ui.close)}
             </button>
           </div>
 
@@ -305,15 +306,19 @@ export default function ShiftPanel() {
 
           {day.payments.length > 0 && (
             <div className="mt-3">
-              <div className="mb-1 text-xs text-slate-500">收款方式</div>
+              <div className="mb-1 text-xs text-slate-500">{t(shift.paymentMethods)}</div>
               {day.payments.map((p) => (
-                <Row key={p.code} label={`${p.name}（${p.count} 筆）`} value={p.amount} />
+                <Row
+                  key={p.code}
+                  label={t(shift.paymentLine, { name: p.name, n: p.count })}
+                  value={p.amount}
+                />
               ))}
             </div>
           )}
 
           <div className="mt-3">
-            <div className="mb-1 text-xs text-slate-500">各班現金差異</div>
+            <div className="mb-1 text-xs text-slate-500">{t(shift.shiftVariances)}</div>
             {day.shifts.map((s) => (
               <div key={s.id} className="flex justify-between text-sm">
                 <span className="text-slate-400">{s.shiftNo}</span>
@@ -326,7 +331,7 @@ export default function ShiftPanel() {
 
           {day.topItems.length > 0 && (
             <div className="mt-3">
-              <div className="mb-1 text-xs text-slate-500">品項排行</div>
+              <div className="mb-1 text-xs text-slate-500">{t(shift.topItems)}</div>
               {day.topItems.slice(0, 10).map((i) => (
                 <div key={i.name} className="flex justify-between text-sm">
                   <span className="text-slate-400">
@@ -341,10 +346,7 @@ export default function ShiftPanel() {
             </div>
           )}
 
-          <p className="mt-4 text-xs text-slate-500">
-            日結之後這一天就鎖住了：不能再新增或修改這一天的單。
-            數字是當下算好的快照，之後永不重算 —— 一份會自己變的報表在稽核上站不住。
-          </p>
+          <p className="mt-4 text-xs text-slate-500">{t(shift.lockNote)}</p>
         </section>
       )}
     </div>
@@ -354,14 +356,15 @@ export default function ShiftPanel() {
 type View = 'shift' | 'day' | 'insight' | 'audit'
 
 function SubTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
+  const t = useT()
   return (
     <div className="mb-3 flex gap-1">
       {(
         [
-          ['shift', '班別與日結'],
-          ['day', '日報表'],
-          ['insight', '營運分析'],
-          ['audit', '稽核紀錄'],
+          ['shift', shift.tabShift],
+          ['day', shift.tabDay],
+          ['insight', shift.tabInsight],
+          ['audit', shift.tabAudit],
         ] as const
       ).map(([k, label]) => (
         <button
@@ -371,7 +374,7 @@ function SubTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
           }`}
           onClick={() => onView(k)}
         >
-          {label}
+          {t(label)}
         </button>
       ))}
     </div>
@@ -379,23 +382,26 @@ function SubTabs({ view, onView }: { view: View; onView: (v: View) => void }) {
 }
 
 function ReportBody({ report }: { report: ShiftReport }) {
+  const t = useT()
   return (
     <>
       <Totals sales={report.sales} />
 
       <div className="mt-3">
-        <div className="mb-1 text-xs text-slate-500">現金</div>
-        <Row label="準備金" value={report.cash.openingFloat} />
-        <Row label="現金銷售" value={report.cash.cashSales} />
-        {report.cash.paidIn > 0 && <Row label="現金收入" value={report.cash.paidIn} />}
-        {report.cash.paidOut > 0 && <Row label="現金支出" value={-report.cash.paidOut} />}
-        <Row label="應有現金" value={report.cash.expected} strong />
-        {report.cash.counted != null && <Row label="實際盤點" value={report.cash.counted} strong />}
+        <div className="mb-1 text-xs text-slate-500">{t(shift.cash)}</div>
+        <Row label={t(shift.openingFloat)} value={report.cash.openingFloat} />
+        <Row label={t(shift.cashSales)} value={report.cash.cashSales} />
+        {report.cash.paidIn > 0 && <Row label={t(shift.paidIn)} value={report.cash.paidIn} />}
+        {report.cash.paidOut > 0 && <Row label={t(shift.paidOut)} value={-report.cash.paidOut} />}
+        <Row label={t(shift.expectedCash)} value={report.cash.expected} strong />
+        {report.cash.counted != null && (
+          <Row label={t(shift.countedCash)} value={report.cash.counted} strong />
+        )}
         {report.cash.variance != null && (
           <div className="mt-1 flex items-baseline justify-between border-t border-slate-800 pt-1">
-            <span className="text-slate-400">差異</span>
+            <span className="text-slate-400">{t(shift.variance)}</span>
             <span className={`text-xl font-semibold ${varianceColor(report.cash.variance)}`}>
-              {report.cash.variance === 0 ? '剛好' : formatMoney(report.cash.variance)}
+              {report.cash.variance === 0 ? t(shift.exact) : formatMoney(report.cash.variance)}
             </span>
           </div>
         )}
@@ -403,18 +409,22 @@ function ReportBody({ report }: { report: ShiftReport }) {
 
       {report.payments.length > 0 && (
         <div className="mt-3">
-          <div className="mb-1 text-xs text-slate-500">收款方式</div>
+          <div className="mb-1 text-xs text-slate-500">{t(shift.paymentMethods)}</div>
           {report.payments.map((p) => (
-            <Row key={p.code} label={`${p.name}（${p.count} 筆）`} value={p.amount} />
+            <Row
+              key={p.code}
+              label={t(shift.paymentLine, { name: p.name, n: p.count })}
+              value={p.amount}
+            />
           ))}
         </div>
       )}
 
       {report.voids.voidedLines > 0 && (
         <div className="mt-3">
-          <div className="mb-1 text-xs text-slate-500">作廢</div>
+          <div className="mb-1 text-xs text-slate-500">{t(shift.voids)}</div>
           <Row
-            label={`退掉 ${report.voids.voidedLines} 項`}
+            label={t(shift.voidedLines, { n: report.voids.voidedLines })}
             value={-report.voids.voidedAmount}
           />
         </div>
@@ -424,15 +434,18 @@ function ReportBody({ report }: { report: ShiftReport }) {
 }
 
 function Totals({ sales }: { sales: ShiftReport['sales'] }) {
+  const t = useT()
   return (
     <div>
-      <div className="mb-1 text-xs text-slate-500">銷售</div>
-      <Row label={`帳單 ${sales.bills} 張`} value={sales.total} strong />
-      {sales.discount !== 0 && <Row label="折扣" value={-sales.discount} />}
-      {sales.serviceCharge !== 0 && <Row label="服務費" value={sales.serviceCharge} />}
-      {sales.rounding !== 0 && <Row label="進位調整" value={sales.rounding} />}
+      <div className="mb-1 text-xs text-slate-500">{t(shift.sales)}</div>
+      <Row label={t(shift.billsCount, { n: sales.bills })} value={sales.total} strong />
+      {sales.discount !== 0 && <Row label={t(shift.discount)} value={-sales.discount} />}
+      {sales.serviceCharge !== 0 && (
+        <Row label={t(shift.serviceCharge)} value={sales.serviceCharge} />
+      )}
+      {sales.rounding !== 0 && <Row label={t(shift.rounding)} value={sales.rounding} />}
       <div className="mt-1 text-right text-xs text-slate-600">
-        未稅 {formatMoney(sales.sales)}　稅 {formatMoney(sales.tax)}
+        {t(shift.netAndTax, { net: formatMoney(sales.sales), tax: formatMoney(sales.tax) })}
       </div>
     </div>
   )
@@ -454,14 +467,17 @@ function varianceColor(v: number | null | undefined): string {
   return v < 0 ? 'text-red-400' : 'text-amber-300'
 }
 
-function dayStatusLabel(s: string | undefined): string {
-  return (
-    ({
-      not_started: '尚未開始',
-      open: '營業中',
-      closing: '結算中',
-      closed: '已日結',
-      locked: '已鎖定',
-    } as Record<string, string>)[s ?? ''] ?? (s ?? '—')
-  )
+function dayStatusLabel(t: (m: Msg) => string, s: string | undefined): string {
+  // 認不得的狀態原樣顯示：後端多了一個狀態時，畫面上看到那個代碼
+  // 比看到空白好查 —— 至少知道是新狀態，不是壞掉。
+  const msg = (
+    {
+      not_started: shift.statusNotStarted,
+      open: shift.statusOpen,
+      closing: shift.statusClosing,
+      closed: shift.statusClosed,
+      locked: shift.statusLocked,
+    } as Record<string, Msg>
+  )[s ?? '']
+  return msg ? t(msg) : (s ?? '—')
 }

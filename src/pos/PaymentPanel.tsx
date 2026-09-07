@@ -10,6 +10,11 @@ import {
   type SplitPreview,
   type SplitReq,
 } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+// 字典取名 `msg`：這個檔案裡的 `order` 已經是「那張單」，
+// 兩個東西不能共用一個名字。
+import { order as msg } from '@/shared/locales/order'
 import { formatMoney, parseMoney } from '@/shared/money'
 
 /**
@@ -40,6 +45,7 @@ export default function PaymentPanel({
   onCancel: () => void
   onSettled: (result: SettleResult) => void
 }) {
+  const t = useT()
   const [methods, setMethods] = useState<PaymentMethod[]>([])
   const [selected, setSelected] = useState<string>('cash')
   const [tendered, setTendered] = useState('')
@@ -132,7 +138,7 @@ export default function PaymentPanel({
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 p-6">
       <div className="max-h-full w-full max-w-md overflow-y-auto rounded-lg bg-slate-900 p-5 shadow-xl">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-semibold">結帳</h2>
+          <h2 className="text-lg font-semibold">{t(msg.payTitle)}</h2>
           <span className="font-mono text-xs text-slate-500">{order.orderNo}</span>
         </div>
 
@@ -178,8 +184,10 @@ export default function PaymentPanel({
           />
         ) : (
           <p className="rounded bg-slate-800/60 px-3 py-4 text-center text-sm text-slate-400">
-            {method ? `以「${method.name}」收取 ${formatMoney(due)}` : '請選付款方式'}
-            <span className="mt-1 block text-xs text-slate-600">這種付款方式不能找零</span>
+            {method
+              ? t(msg.collectVia, { method: method.name, amount: formatMoney(due) })
+              : t(msg.pickMethod)}
+            <span className="mt-1 block text-xs text-slate-600">{t(msg.noChangeMethod)}</span>
           </p>
         )}
 
@@ -195,14 +203,14 @@ export default function PaymentPanel({
             disabled={busy}
             onClick={onCancel}
           >
-            取消
+            {t(ui.cancel)}
           </button>
           <button
             className="flex-[2] rounded bg-emerald-700 py-3 text-lg font-semibold hover:bg-emerald-600 disabled:opacity-40"
             disabled={!canSettle}
             onClick={() => void settle()}
           >
-            確認收款
+            {t(msg.confirmPayment)}
           </button>
         </div>
       </div>
@@ -262,6 +270,7 @@ function SplitPicker({
   onPicked: (f: (p: string[]) => string[]) => void
   preview: SplitPreview | null
 }) {
+  const t = useT()
   const due = preview?.due ?? 0
   // 已經分過的單不能改分法，所以那些頁籤也不該還能按。
   const started = order.billCount > 0 && !!order.splitMode
@@ -271,25 +280,27 @@ function SplitPicker({
     <>
       <div className="mt-3 flex flex-wrap gap-1">
         <ModeTab active={mode === 'full'} onClick={() => onMode('full')}>
-          {order.billCount > 0 ? '收尾款' : '整單'}
+          {order.billCount > 0 ? t(msg.splitBalance) : t(msg.splitFull)}
         </ModeTab>
         <ModeTab active={mode === 'even'} hidden={!tab('even')} onClick={() => onMode('even')}>
-          平分
+          {t(msg.splitEven)}
         </ModeTab>
         <ModeTab active={mode === 'amount'} hidden={!tab('amount')} onClick={() => onMode('amount')}>
-          指定金額
+          {t(msg.splitAmount)}
         </ModeTab>
         <ModeTab active={mode === 'items'} hidden={!tab('items')} onClick={() => onMode('items')}>
-          分項
+          {t(msg.splitItems)}
         </ModeTab>
       </div>
 
       {mode === 'even' &&
         // 已經開始分了就把份數鎖住 —— 它不是還能選的東西，是已經發生的事。
+        // 放大的份數擺在句子最前面，三種語言的語序才都接得下去
+        // （「4 等分…」／「4 ways…」／「4 等分…」）。
         (locked ? (
           <p className="mt-2 rounded bg-slate-800/60 px-3 py-2.5 text-center text-sm text-slate-400">
-            這張單分 <span className="text-lg font-semibold text-slate-100">{parts}</span> 份，
-            已經收了 {order.billCount} 份
+            <span className="text-lg font-semibold text-slate-100">{parts}</span>{' '}
+            {t(msg.splitLockedRest, { n: order.billCount })}
           </p>
         ) : (
           <div className="mt-2 flex gap-1">
@@ -310,7 +321,7 @@ function SplitPicker({
       {mode === 'amount' && (
         <input
           className="mt-2 w-full rounded bg-slate-800 px-3 py-2.5 text-right text-xl"
-          placeholder="這一份收多少"
+          placeholder={t(msg.amountPlaceholder)}
           inputMode="numeric"
           value={amount}
           onChange={(e) => onAmount(e.target.value)}
@@ -336,20 +347,24 @@ function SplitPicker({
               />
               <span className="flex-1">
                 {l.name}
-                {l.variantName && <span className="text-slate-500">（{l.variantName}）</span>}
+                {l.variantName && (
+                  <span className="text-slate-500">
+                    {t(msg.variantParen, { name: l.variantName })}
+                  </span>
+                )}
               </span>
               <span className="font-mono">{formatMoney(l.amount)}</span>
             </label>
           ))}
           {order.lines.every((l) => l.paid) && (
-            <p className="px-2 py-3 text-center text-xs text-slate-600">都結完了</p>
+            <p className="px-2 py-3 text-center text-xs text-slate-600">{t(msg.allPaid)}</p>
           )}
         </div>
       )}
 
       <div className="my-4 border-y border-slate-800 py-3">
         <div className="flex items-baseline justify-between">
-          <span className="text-slate-400">應收</span>
+          <span className="text-slate-400">{t(msg.due)}</span>
           <span className="text-3xl font-semibold text-emerald-300">{formatMoney(due)}</span>
         </div>
         {/* ★ 分帳最貴的意外是「以為收完了」：三個人各付各的，第三個人走掉
@@ -357,15 +372,16 @@ function SplitPicker({
         {preview && (preview.billed > 0 || preview.remainingAfter > 0) && (
           <div className="mt-1.5 flex justify-between gap-2 text-xs">
             <span className="text-slate-500">
-              全單 {formatMoney(preview.orderTotal)}
-              {preview.billed > 0 && ` · 已收 ${formatMoney(preview.billed)}`}
+              {t(msg.previewTotal, { amount: formatMoney(preview.orderTotal) })}
+              {preview.billed > 0 &&
+                t(msg.previewBilled, { amount: formatMoney(preview.billed) })}
               {preview.count !== null
-                ? ` · 第 ${preview.index}／${preview.count} 份`
-                : ` · 第 ${preview.index} 筆`}
+                ? t(msg.previewIndexOf, { i: preview.index, n: preview.count })
+                : t(msg.previewIndex, { i: preview.index })}
             </span>
             {preview.remainingAfter > 0 && (
               <span className="shrink-0 font-semibold text-amber-300">
-                收完還差 {formatMoney(preview.remainingAfter)}
+                {t(msg.remainingAfter, { amount: formatMoney(preview.remainingAfter) })}
               </span>
             )}
           </div>
@@ -389,6 +405,7 @@ function TenderPad({
   change: number
   onEnter: () => void
 }) {
+  const t = useT()
   return (
     <>
       <div className="mb-2 flex gap-1">
@@ -403,16 +420,16 @@ function TenderPad({
         ))}
         <button
           className="flex-1 rounded bg-slate-800 py-3 text-sm hover:bg-slate-700 disabled:opacity-40"
-          title="客人剛好給整數"
+          title={t(msg.exactTitle)}
           disabled={due <= 0}
           onClick={() => onTendered(String(due))}
         >
-          剛好
+          {t(msg.exact)}
         </button>
       </div>
       <input
         className="w-full rounded bg-slate-800 px-3 py-3 text-right text-2xl"
-        placeholder="客人給多少"
+        placeholder={t(msg.tenderedPlaceholder)}
         inputMode="numeric"
         autoFocus
         value={tendered}
@@ -420,7 +437,7 @@ function TenderPad({
         onKeyDown={(e) => e.key === 'Enter' && onEnter()}
       />
       <div className="mt-3 flex items-baseline justify-between">
-        <span className="text-slate-400">找零</span>
+        <span className="text-slate-400">{t(msg.change)}</span>
         <span
           className={`text-3xl font-semibold ${change > 0 ? 'text-amber-300' : 'text-slate-600'}`}
         >

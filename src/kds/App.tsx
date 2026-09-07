@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { dequeue, enqueue, queued } from './offline'
 import { useBoard, type Connection } from './useBoard'
 import { kdsApi, type KdsLine, type KdsStatus, type KdsTicket } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { kds } from '@/shared/locales/kds'
 
 /**
  * 廚房顯示。
@@ -28,6 +30,7 @@ import { kdsApi, type KdsLine, type KdsStatus, type KdsTicket } from '@/shared/a
  * 重放安全，因為狀態只能往前推 —— 重複的那一次會被靜靜忽略。
  */
 export default function App() {
+  const t = useT()
   const { board, connection, silentFor, stale, reconnect } = useBoard()
   const [station, setStation] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -35,20 +38,25 @@ export default function App() {
 
   // 樂觀套用還沒送出去的那幾筆。廚師按下去就要看到勾 ——
   // 不然他會以為沒按到，然後再按一次。
-  const tickets = (board?.tickets ?? []).map((t) => ({
-    ...t,
-    lines: t.lines.map((l) => (pending[l.id] ? { ...l, status: pending[l.id] } : l)),
+  const tickets = (board?.tickets ?? []).map((ticket) => ({
+    ...ticket,
+    lines: ticket.lines.map((l) => (pending[l.id] ? { ...l, status: pending[l.id] } : l)),
   }))
   const stations = Array.from(
     new Set(
-      tickets.flatMap((t) => t.lines.map((l) => l.stationName)).filter((s): s is string => !!s),
+      tickets
+        .flatMap((ticket) => ticket.lines.map((l) => l.stationName))
+        .filter((s): s is string => !!s),
     ),
   )
 
   const shown = station
     ? tickets
-        .map((t) => ({ ...t, lines: t.lines.filter((l) => l.stationName === station) }))
-        .filter((t) => t.lines.length > 0)
+        .map((ticket) => ({
+          ...ticket,
+          lines: ticket.lines.filter((l) => l.stationName === station),
+        }))
+        .filter((ticket) => ticket.lines.length > 0)
     : tickets
 
   const advance = async (line: KdsLine) => {
@@ -85,12 +93,13 @@ export default function App() {
       />
 
       <header className="flex flex-wrap items-center gap-2 px-4 py-3">
-        <h1 className="mr-2 text-xl font-semibold">廚房</h1>
+        <h1 className="mr-2 text-xl font-semibold">{t(kds.title)}</h1>
         {stations.length > 1 && (
           <>
             <StationTab active={station === null} onClick={() => setStation(null)}>
-              全部
+              {t(kds.allStations)}
             </StationTab>
+            {/* 站別名稱來自後台設定的資料，不進字典 —— 那是店家自己取的名字。 */}
             {stations.map((s) => (
               <StationTab key={s} active={station === s} onClick={() => setStation(s)}>
                 {s}
@@ -98,17 +107,19 @@ export default function App() {
             ))}
           </>
         )}
-        <span className="ml-auto text-sm text-slate-500">{shown.length} 張單</span>
+        <span className="ml-auto text-sm text-slate-500">
+          {t(kds.ticketCount, { n: shown.length })}
+        </span>
       </header>
 
       {shown.length === 0 ? (
         <p className="px-4 py-24 text-center text-2xl text-slate-700">
-          {board ? '沒有待做的單' : '連線中…'}
+          {board ? t(kds.empty) : t(kds.connecting)}
         </p>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 px-4 pb-8">
-          {shown.map((t) => (
-            <Ticket key={t.orderId} ticket={t} busy={busy} onAdvance={advance} />
+          {shown.map((ticket) => (
+            <Ticket key={ticket.orderId} ticket={ticket} busy={busy} onAdvance={advance} />
           ))}
         </div>
       )}
@@ -137,6 +148,8 @@ function ConnectionBanner({
   pending: number
   onRetry: () => void
 }) {
+  // Hook 要在提前 return 之前呼叫，否則橫幅一出現就會多掛一個 hook。
+  const t = useT()
   if (state === 'live' && pending === 0) return null
   const lost = state === 'lost'
   return (
@@ -148,15 +161,15 @@ function ConnectionBanner({
       <span className="text-2xl">{lost ? '⚠' : '…'}</span>
       <span>
         {lost
-          ? `跟收銀機斷線了 —— 現在看到的單可能是舊的（已經 ${silentFor} 秒沒有訊息）`
+          ? t(kds.disconnected, { n: silentFor })
           : stale
-            ? '連線中… 現在畫的是上一次的單'
-            : '連線中…'}
+            ? t(kds.connectingStale)
+            : t(kds.connecting)}
       </span>
       {/* 還沒送出去的那幾下要說出來。廚師會想知道「我剛剛按的到底算不算」。 */}
       {pending > 0 && (
         <span className="rounded bg-black/30 px-3 py-1 text-base">
-          {pending} 個「完成」還沒送出去，連上就會補送
+          {t(kds.pendingActions, { n: pending })}
         </span>
       )}
       {lost && (
@@ -164,7 +177,7 @@ function ConnectionBanner({
           className="ml-auto rounded bg-red-950/60 px-4 py-2 text-base hover:bg-red-950"
           onClick={onRetry}
         >
-          重新連線
+          {t(kds.reconnect)}
         </button>
       )}
     </div>
@@ -274,6 +287,7 @@ function Ticket({
   busy: string | null
   onAdvance: (line: KdsLine) => void
 }) {
+  const t = useT()
   // 顏色只表達一件事：等多久了。五分鐘內是正常的，十分鐘以上要有人注意。
   const mins = Math.floor(ticket.waitingSeconds / 60)
   const urgency = mins >= 10 ? 'late' : mins >= 5 ? 'slow' : 'ok'
@@ -290,7 +304,9 @@ function Ticket({
         <span className="font-mono text-lg">{ticket.orderNo.split('-').pop()}</span>
         <span className="text-sm text-slate-400">{ticket.channelLabel}</span>
         {ticket.tableLabel && <span className="text-sm text-sky-300">{ticket.tableLabel}</span>}
-        <span className={`ml-auto font-mono text-lg ${clockTone}`}>{mins}分</span>
+        <span className={`ml-auto font-mono text-lg ${clockTone}`}>
+          {t(kds.waitMinutes, { n: mins })}
+        </span>
       </header>
 
       <ul className="mt-2 space-y-1">
@@ -314,6 +330,7 @@ function LineRow({
   busy: boolean
   onAdvance: () => void
 }) {
+  const t = useT()
   const done = line.status === 'ready'
   const qty = line.qtyMilli % 1000 === 0 ? line.qtyMilli / 1000 : (line.qtyMilli / 1000).toFixed(1)
 
@@ -329,11 +346,18 @@ function LineRow({
       <span className="min-w-0 flex-1">
         <span className="text-xl leading-snug">
           {line.name}
-          {line.variantName && <span className="text-slate-400">（{line.variantName}）</span>}
+          {/* 括號與頓號也走字典：英文螢幕上的全形符號看起來像編碼壞掉。 */}
+          {line.variantName && (
+            <span className="text-slate-400">
+              {t(kds.variantParen, { name: line.variantName })}
+            </span>
+          )}
         </span>
         {/* 加購與備註要用不同顏色：它們是廚師最容易漏掉的兩件事。 */}
         {line.options.length > 0 && (
-          <span className="block text-base text-amber-300">{line.options.join('、')}</span>
+          <span className="block text-base text-amber-300">
+            {line.options.join(t(kds.listSeparator))}
+          </span>
         )}
         {line.note && <span className="block text-base text-sky-300">※ {line.note}</span>}
       </span>

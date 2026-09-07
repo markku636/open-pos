@@ -34,7 +34,10 @@ export const nav = {
   shift: { 'zh-TW': '班別日結', en: 'Shifts', ja: '日次締め' },
   backup: { 'zh-TW': '備份', en: 'Backup', ja: 'バックアップ' },
   status: { 'zh-TW': '系統狀態', en: 'System', ja: 'システム' },
-  about: { 'zh-TW': '關於', en: 'About', ja: 'について' },
+  // 日文的「について」是接在名字後面的助詞（「open-posについて」），
+  // 單獨拿來當標籤是半句話。這顆按鈕在頂欄最右邊、跟語言選單擠同一列，
+  // 所以用「情報」而不是完整的「バージョン情報」—— 寧可短，不要換行。
+  about: { 'zh-TW': '關於', en: 'About', ja: '情報' },
   language: {
     'zh-TW': '介面語言',
     en: 'Language',

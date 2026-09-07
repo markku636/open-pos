@@ -8,6 +8,9 @@ import {
   type SalesQuery,
   type SalesReport,
 } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { sales } from '@/shared/locales/sales'
 import { formatMoney } from '@/shared/money'
 import { hhmm } from '@/shared/time'
 
@@ -27,6 +30,7 @@ import { hhmm } from '@/shared/time'
  * 因為它看起來是完整的。
  */
 export default function SalesPanel() {
+  const t = useT()
   const [data, setData] = useState<SalesReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -69,7 +73,7 @@ export default function SalesPanel() {
     setBusy(true)
     try {
       const path = await salesApi.exportSalesXlsx(query, dir)
-      setNote(`已匯出：${path}`)
+      setNote(t(sales.exported, { path }))
       setError(null)
     } catch (e) {
       setError((e as AppError).message ?? String(e))
@@ -82,20 +86,20 @@ export default function SalesPanel() {
     <div className="flex h-full min-h-0 flex-col">
       <section className="mb-3 flex flex-wrap items-end gap-3 rounded border border-slate-800 bg-slate-900/40 px-4 py-3">
         <div className="flex gap-1">
-          <Preset label="今天" active={range === null} onClick={() => setRange(null)} />
+          <Preset label={t(sales.today)} active={range === null} onClick={() => setRange(null)} />
           <Preset
-            label="最近 7 天"
+            label={t(sales.last7Days)}
             active={!!range && days(range) === 6}
             onClick={() => setRange(lastDays(7))}
           />
           <Preset
-            label="最近 30 天"
+            label={t(sales.last30Days)}
             active={!!range && days(range) === 29}
             onClick={() => setRange(lastDays(30))}
           />
         </div>
         <label>
-          <span className="mb-1 block text-xs text-slate-500">從</span>
+          <span className="mb-1 block text-xs text-slate-500">{t(sales.dateFrom)}</span>
           <input
             type="date"
             className="rounded bg-slate-800 px-2 py-1.5 text-sm"
@@ -104,7 +108,7 @@ export default function SalesPanel() {
           />
         </label>
         <label>
-          <span className="mb-1 block text-xs text-slate-500">到</span>
+          <span className="mb-1 block text-xs text-slate-500">{t(sales.dateTo)}</span>
           <input
             type="date"
             className="rounded bg-slate-800 px-2 py-1.5 text-sm"
@@ -114,20 +118,27 @@ export default function SalesPanel() {
         </label>
         <input
           className="w-40 rounded bg-slate-800 px-2 py-1.5 text-sm"
-          placeholder="單號末幾碼"
+          placeholder={t(sales.billNoPlaceholder)}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
         />
         <div className="flex gap-1">
+          {/* key 用通路代碼而不是標籤：標籤會跟著語言變，拿它當 key
+              等於每換一次語言就把這四顆按鈕全部拆掉重建。 */}
           {(
             [
-              [null, '全部'],
-              ['dine_in', '內用'],
-              ['takeout', '外帶'],
-              ['delivery', '外送'],
+              [null, sales.channelAll],
+              ['dine_in', sales.channelDineIn],
+              ['takeout', sales.channelTakeout],
+              ['delivery', sales.channelDelivery],
             ] as const
           ).map(([v, label]) => (
-            <Preset key={label} label={label} active={channel === v} onClick={() => setChannel(v)} />
+            <Preset
+              key={v ?? 'all'}
+              label={t(label)}
+              active={channel === v}
+              onClick={() => setChannel(v)}
+            />
           ))}
         </div>
         <label className="flex items-center gap-2 pb-1.5 text-sm text-slate-300">
@@ -136,26 +147,26 @@ export default function SalesPanel() {
             checked={refundedOnly}
             onChange={(e) => setRefundedOnly(e.target.checked)}
           />
-          只看退過款的
+          {t(sales.refundedOnly)}
         </label>
 
         <div className="ml-auto flex items-end gap-4">
           {data && (
             <>
-              <Stat label="筆數" value={String(data.count)} />
-              <Stat label="營業額" value={formatMoney(data.total)} big />
+              <Stat label={t(sales.statCount)} value={String(data.count)} />
+              <Stat label={t(sales.statRevenue)} value={formatMoney(data.total)} big />
               {data.refundedTotal > 0 && (
-                <Stat label="已退" value={formatMoney(-data.refundedTotal)} warn />
+                <Stat label={t(sales.statRefunded)} value={formatMoney(-data.refundedTotal)} warn />
               )}
             </>
           )}
           <button
             className="rounded bg-emerald-800 px-4 py-2 text-sm hover:bg-emerald-700 disabled:opacity-40"
             disabled={busy || !data || data.count === 0}
-            title="帳單 / 品項明細 / 付款方式三張表，金額是可以直接加總的數字"
+            title={t(sales.exportHint)}
             onClick={() => void exportXlsx()}
           >
-            匯出 Excel
+            {t(sales.exportExcel)}
           </button>
         </div>
       </section>
@@ -181,7 +192,9 @@ export default function SalesPanel() {
               {m.method}
               <span className="ml-2 font-mono text-slate-300">{formatMoney(m.amount)}</span>
               {m.refunded > 0 && (
-                <span className="ml-1 text-xs text-amber-400">退 {formatMoney(m.refunded)}</span>
+                <span className="ml-1 text-xs text-amber-400">
+                  {t(sales.refundShort, { amount: formatMoney(m.refunded) })}
+                </span>
               )}
             </span>
           ))}
@@ -190,15 +203,13 @@ export default function SalesPanel() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!data ? (
-          <p className="py-10 text-center text-sm text-slate-600">查詢中…</p>
+          <p className="py-10 text-center text-sm text-slate-600">{t(ui.loading)}</p>
         ) : data.sales.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-600">這段期間沒有結過帳。</p>
+          <p className="py-10 text-center text-sm text-slate-600">{t(sales.noSalesInRange)}</p>
         ) : (
           <>
             {data.truncated && (
-              <p className="mb-2 text-xs text-amber-400">
-                只顯示最近 500 筆（上面的合計與匯出的 Excel 是完整的）
-              </p>
+              <p className="mb-2 text-xs text-amber-400">{t(sales.truncated)}</p>
             )}
             {data.sales.map((s) => (
               <SaleRow
@@ -224,6 +235,7 @@ function SaleRow({
   expanded: boolean
   onToggle: () => void
 }) {
+  const t = useT()
   return (
     <div className="mb-1 rounded bg-slate-900/50">
       <button
@@ -243,18 +255,18 @@ function SaleRow({
         )}
         {sale.splitLabel && (
           <span className="shrink-0 rounded bg-slate-800 px-1 text-xs text-slate-400">
-            分帳 {sale.splitLabel}
+            {t(sales.splitLabel, { label: sale.splitLabel })}
           </span>
         )}
         <span className="min-w-0 flex-1 truncate text-xs text-slate-500">
           {sale.lines
             .filter((l) => !l.voided)
             .map((l) => l.name)
-            .join('、')}
+            .join(t(sales.listSeparator))}
         </span>
         {sale.refundedTotal > 0 && (
           <span className="shrink-0 text-xs text-amber-400">
-            已退 {formatMoney(sale.refundedTotal)}
+            {t(sales.refundedAmount, { amount: formatMoney(sale.refundedTotal) })}
           </span>
         )}
         <span className="w-20 shrink-0 text-right font-mono">{formatMoney(sale.grandTotal)}</span>
@@ -274,11 +286,17 @@ function SaleRow({
               </span>
               <span className="min-w-0 flex-1">
                 {l.name}
-                {l.variantName && <span className="text-slate-500">（{l.variantName}）</span>}
+                {l.variantName && (
+                  <span className="text-slate-500">
+                    {t(sales.variantSuffix, { name: l.variantName })}
+                  </span>
+                )}
                 {/* 當時點的選項也要留著 —— 「這杯到底是不是半糖」是客訴時
                     唯一能回答問題的東西。 */}
                 {l.options.length > 0 && (
-                  <span className="block text-xs text-amber-300/80">{l.options.join('、')}</span>
+                  <span className="block text-xs text-amber-300/80">
+                    {l.options.join(t(sales.listSeparator))}
+                  </span>
                 )}
                 {l.note && <span className="block text-xs text-sky-300/80">※ {l.note}</span>}
               </span>
@@ -289,21 +307,30 @@ function SaleRow({
           ))}
 
           <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-800/60 pt-2 text-xs text-slate-500">
-            <span>小計 {formatMoney(sale.subtotal)}</span>
-            {sale.discountTotal !== 0 && <span>折扣 −{formatMoney(sale.discountTotal)}</span>}
-            {sale.serviceCharge !== 0 && <span>服務費 {formatMoney(sale.serviceCharge)}</span>}
+            <span>{t(sales.subtotal, { amount: formatMoney(sale.subtotal) })}</span>
+            {sale.discountTotal !== 0 && (
+              <span>{t(sales.discount, { amount: formatMoney(sale.discountTotal) })}</span>
+            )}
+            {sale.serviceCharge !== 0 && (
+              <span>{t(sales.serviceCharge, { amount: formatMoney(sale.serviceCharge) })}</span>
+            )}
             <span>
-              未稅 {formatMoney(sale.salesAmount)}　稅 {formatMoney(sale.taxAmount)}
+              {t(sales.taxLine, {
+                net: formatMoney(sale.salesAmount),
+                tax: formatMoney(sale.taxAmount),
+              })}
             </span>
             {sale.payments.map((p, i) => (
               <span key={i} className="text-slate-400">
                 {p.method} {formatMoney(p.amount)}
                 {p.refunded > 0 && (
-                  <span className="text-amber-400"> 退 {formatMoney(p.refunded)}</span>
+                  <span className="ml-1 text-amber-400">
+                    {t(sales.refundShort, { amount: formatMoney(p.refunded) })}
+                  </span>
                 )}
               </span>
             ))}
-            {sale.settledBy && <span>結帳：{sale.settledBy}</span>}
+            {sale.settledBy && <span>{t(sales.settledBy, { name: sale.settledBy })}</span>}
             <span className="font-mono">{sale.orderNo}</span>
           </div>
         </div>

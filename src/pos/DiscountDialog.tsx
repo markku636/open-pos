@@ -1,14 +1,19 @@
 import { useState } from 'react'
 
 import { discountApi, type AppError, type DiscountInput, type Order } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { discount } from '@/shared/locales/discount'
+import { ui } from '@/shared/locales/nav'
 import { formatMoney } from '@/shared/money'
 
 /** 台灣講折扣是「打幾折」，所以按鈕直接寫折數。9000 bp = 9 折。 */
+// 但英文與日文寫的是折掉多少（10% off / 10%引），所以字典鍵照折掉的
+// 百分比取名 —— 對照 bp 看是「剩下多少」，兩邊差一個減法，別直譯。
 const PRESETS = [
-  { label: '9 折', bp: 9000 },
-  { label: '85 折', bp: 8500 },
-  { label: '8 折', bp: 8000 },
-  { label: '75 折', bp: 7500 },
+  { msg: discount.off10, bp: 9000 },
+  { msg: discount.off15, bp: 8500 },
+  { msg: discount.off20, bp: 8000 },
+  { msg: discount.off25, bp: 7500 },
 ]
 
 /**
@@ -32,12 +37,15 @@ export default function DiscountDialog({
   onClose: () => void
   onDone: (order: Order) => void
 }) {
+  const t = useT()
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const line = lineId ? order.lines.find((l) => l.id === lineId) : undefined
-  const target = line ? `${line.name}（${formatMoney(line.amount)}）` : `整單 ${formatMoney(order.grandTotal)}`
+  const target = line
+    ? t(discount.targetLine, { name: line.name, amount: formatMoney(line.amount) })
+    : t(discount.targetOrder, { amount: formatMoney(order.grandTotal) })
 
   const apply = async (patch: Pick<DiscountInput, 'kind' | 'value'>) => {
     setBusy(true)
@@ -65,7 +73,9 @@ export default function DiscountDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-semibold">{lineId ? '單品折扣' : '整單折扣'}</h2>
+          <h2 className="text-lg font-semibold">
+            {t(lineId ? discount.titleLine : discount.titleOrder)}
+          </h2>
           <span className="text-sm text-slate-400">{target}</span>
         </div>
 
@@ -77,7 +87,7 @@ export default function DiscountDialog({
               disabled={busy}
               onClick={() => void apply({ kind: 'percent', value: p.bp })}
             >
-              {p.label}
+              {t(p.msg)}
             </button>
           ))}
         </div>
@@ -85,7 +95,7 @@ export default function DiscountDialog({
         <div className="mt-3 flex gap-2">
           <input
             className="min-w-0 flex-1 rounded bg-slate-800 px-3 py-3 text-right text-lg"
-            placeholder="折抵多少元"
+            placeholder={t(discount.amountPlaceholder)}
             inputMode="numeric"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
@@ -95,7 +105,7 @@ export default function DiscountDialog({
             disabled={busy || !(Number(amount) > 0)}
             onClick={() => void apply({ kind: 'amount', value: Number(amount) })}
           >
-            折抵
+            {t(discount.applyAmount)}
           </button>
         </div>
 
@@ -103,10 +113,10 @@ export default function DiscountDialog({
         <button
           className="mt-3 w-full rounded bg-amber-900/60 py-3 text-amber-200 hover:bg-amber-800/60 disabled:opacity-40"
           disabled={busy}
-          title="整行免費。報表上會進「招待」而不是「折扣」"
+          title={t(discount.compTitle)}
           onClick={() => void apply({ kind: 'comp', value: 0 })}
         >
-          招待（免費）
+          {t(discount.comp)}
         </button>
 
         {error && (
@@ -119,7 +129,7 @@ export default function DiscountDialog({
           className="mt-4 w-full rounded bg-slate-800 py-2.5 hover:bg-slate-700"
           onClick={onClose}
         >
-          取消
+          {t(ui.cancel)}
         </button>
       </div>
     </div>

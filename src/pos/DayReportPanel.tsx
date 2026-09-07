@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { dialogApi, salesApi, type AppError, type DayReport } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { shift } from '@/shared/locales/shift'
 import { formatMoney } from '@/shared/money'
 
 /**
@@ -21,6 +24,7 @@ import { formatMoney } from '@/shared/money'
  * 想看「現在的數字」請去營運分析那一頁。
  */
 export default function DayReportPanel() {
+  const t = useT()
   const [days, setDays] = useState<string[] | null>(null)
   const [picked, setPicked] = useState<string | null>(null)
   const [report, setReport] = useState<DayReport | null>(null)
@@ -61,7 +65,7 @@ export default function DayReportPanel() {
     if (!dir) return
     setBusy(true)
     try {
-      setNote(`已匯出：${await salesApi.exportDayXlsx(picked, dir)}`)
+      setNote(t(shift.exported, { path: await salesApi.exportDayXlsx(picked, dir) }))
       setError(null)
     } catch (e) {
       setError((e as AppError).message ?? String(e))
@@ -73,11 +77,11 @@ export default function DayReportPanel() {
   if (days && days.length === 0) {
     return (
       <p className="rounded bg-slate-900/40 px-3 py-10 text-center text-sm text-slate-600">
-        還沒有日結過。
+        {t(shift.noDaysTitle)}
         <br />
-        每天打烊時到「班別與日結」按日結，那一天的報表就會存下來 ——
+        {t(shift.noDaysHow)}
         <br />
-        而存下來的數字之後永遠不會再變。
+        {t(shift.noDaysWhy)}
       </p>
     )
   }
@@ -86,7 +90,7 @@ export default function DayReportPanel() {
     <div className="h-full space-y-4 overflow-y-auto pr-2">
       <section className="flex flex-wrap items-end gap-3 rounded border border-slate-800 bg-slate-900/40 px-4 py-3">
         <label>
-          <span className="mb-1 block text-xs text-slate-500">營業日</span>
+          <span className="mb-1 block text-xs text-slate-500">{t(shift.businessDate)}</span>
           <select
             className="rounded bg-slate-800 px-3 py-2 text-sm"
             value={picked ?? ''}
@@ -102,19 +106,19 @@ export default function DayReportPanel() {
         {report && (
           <>
             <div>
-              <div className="text-xs text-slate-500">Z 報表編號</div>
+              <div className="text-xs text-slate-500">{t(shift.zReportNo)}</div>
               <div className="font-mono text-sm">{report.zReportNo}</div>
             </div>
             <div className="ml-auto flex items-end gap-4">
-              <Stat label="帳單數" value={String(report.sales.bills)} />
-              <Stat label="營業額" value={formatMoney(report.sales.total)} big />
+              <Stat label={t(shift.billCount)} value={String(report.sales.bills)} />
+              <Stat label={t(shift.revenue)} value={formatMoney(report.sales.total)} big />
               <button
                 className="rounded bg-emerald-800 px-4 py-2 text-sm hover:bg-emerald-700 disabled:opacity-40"
                 disabled={busy}
-                title="日報表 / 付款方式 / 品項排行 / 各班現金 四張表"
+                title={t(shift.exportXlsxHint)}
                 onClick={() => void exportXlsx()}
               >
-                匯出 Excel
+                {t(shift.exportXlsx)}
               </button>
             </div>
           </>
@@ -137,34 +141,38 @@ export default function DayReportPanel() {
 
       {report && (
         <div className="grid gap-4 md:grid-cols-2">
-          <Box title="銷售">
-            <Row label="帳單數" value={report.sales.bills} plain />
-            <Row label="銷售總額" value={report.sales.total} strong />
-            <Row label="未稅" value={report.sales.sales} />
-            <Row label="稅額" value={report.sales.tax} />
-            <Row label="折扣" value={-report.sales.discount} />
-            <Row label="服務費" value={report.sales.serviceCharge} />
+          <Box title={t(shift.sales)}>
+            <Row label={t(shift.billCount)} value={report.sales.bills} plain />
+            <Row label={t(shift.totalSales)} value={report.sales.total} strong />
+            <Row label={t(shift.netSales)} value={report.sales.sales} />
+            <Row label={t(shift.taxAmount)} value={report.sales.tax} />
+            <Row label={t(shift.discount)} value={-report.sales.discount} />
+            <Row label={t(shift.serviceCharge)} value={report.sales.serviceCharge} />
           </Box>
 
-          <Box title="付款方式">
+          <Box title={t(shift.payments)}>
             {report.payments.length === 0 ? (
               <Empty />
             ) : (
               report.payments.map((p) => (
-                <Row key={p.code} label={`${p.name}（${p.count}）`} value={p.amount} />
+                <Row
+                  key={p.code}
+                  label={t(shift.paymentCount, { name: p.name, n: p.count })}
+                  value={p.amount}
+                />
               ))
             )}
           </Box>
 
-          <Box title="退款與作廢">
-            <Row label="退款筆數" value={report.refunds.count} plain />
-            <Row label="退款金額" value={-report.refunds.amount} />
-            <Row label="其中現金" value={-report.refunds.cashAmount} />
-            <Row label="退掉的品項" value={report.voids.voidedLines} plain />
-            <Row label="作廢金額" value={-report.voids.voidedAmount} />
+          <Box title={t(shift.refundsAndVoids)}>
+            <Row label={t(shift.refundCount)} value={report.refunds.count} plain />
+            <Row label={t(shift.refundAmount)} value={-report.refunds.amount} />
+            <Row label={t(shift.refundCash)} value={-report.refunds.cashAmount} />
+            <Row label={t(shift.voidedItems)} value={report.voids.voidedLines} plain />
+            <Row label={t(shift.voidAmount)} value={-report.voids.voidedAmount} />
           </Box>
 
-          <Box title="各班現金差異">
+          <Box title={t(shift.shiftVariances)}>
             {report.shifts.length === 0 ? (
               <Empty />
             ) : (
@@ -180,7 +188,7 @@ export default function DayReportPanel() {
             )}
           </Box>
 
-          <Box title="品項排行" wide>
+          <Box title={t(shift.topItems)} wide>
             {report.topItems.length === 0 ? (
               <Empty />
             ) : (
@@ -246,7 +254,8 @@ function Row({
 }
 
 function Empty() {
-  return <p className="py-3 text-center text-xs text-slate-600">沒有資料</p>
+  const t = useT()
+  return <p className="py-3 text-center text-xs text-slate-600">{t(ui.noData)}</p>
 }
 
 function Stat({ label, value, big }: { label: string; value: string; big?: boolean }) {

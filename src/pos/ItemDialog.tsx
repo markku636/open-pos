@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
 
 import type { Item, MenuTree, Modifier, ModifierGroup, Variant } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { order } from '@/shared/locales/order'
 import { formatMoney } from '@/shared/money'
 
 /**
@@ -35,6 +38,7 @@ export default function ItemDialog({
   onCancel: () => void
   onAdd: (chosen: Chosen) => void
 }) {
+  const t = useT()
   const groups = useMemo(
     () =>
       item.modifierGroupIds
@@ -84,7 +88,7 @@ export default function ItemDialog({
 
         {variants.length > 0 && (
           <section className="mt-4">
-            <h3 className="mb-1.5 text-sm text-slate-400">規格</h3>
+            <h3 className="mb-1.5 text-sm text-slate-400">{t(order.variants)}</h3>
             <div className="flex flex-wrap gap-1.5">
               {variants.map((v) => (
                 <Choice
@@ -103,9 +107,11 @@ export default function ItemDialog({
           <section className="mt-4" key={g.id}>
             <h3 className="mb-1.5 text-sm text-slate-400">
               {g.name}
-              {g.minSelect > 0 && <span className="ml-1 text-amber-400">必選</span>}
+              {g.minSelect > 0 && (
+                <span className="ml-1 text-amber-400">{t(order.required)}</span>
+              )}
               {g.selectionType === 'multiple' && (
-                <span className="ml-1 text-xs text-slate-600">可複選</span>
+                <span className="ml-1 text-xs text-slate-600">{t(order.multipleAllowed)}</span>
               )}
             </h3>
             <div className="flex flex-wrap gap-1.5">
@@ -128,7 +134,9 @@ export default function ItemDialog({
         {/* ★ 擋住「忘了選甜度」。擋不住的代價是廚房自己猜，猜錯要重做一杯。 */}
         {missing.length > 0 && (
           <p className="mt-4 rounded bg-amber-950/40 px-3 py-2 text-sm text-amber-300">
-            還要選：{missing.map((g) => g.name).join('、')}
+            {t(order.stillNeed, {
+              list: missing.map((g) => g.name).join(t(order.listSeparator)),
+            })}
           </p>
         )}
 
@@ -137,14 +145,14 @@ export default function ItemDialog({
             className="flex-1 rounded bg-slate-800 py-3 hover:bg-slate-700"
             onClick={onCancel}
           >
-            取消
+            {t(ui.cancel)}
           </button>
           <button
             className="flex-[2] rounded bg-sky-700 py-3 text-lg font-semibold hover:bg-sky-600 disabled:opacity-40"
             disabled={missing.length > 0}
             onClick={() => onAdd({ variantId, modifierIds: picked })}
           >
-            加入 {formatMoney(price)}
+            {t(order.addToCart, { amount: formatMoney(price) })}
           </button>
         </div>
       </div>
@@ -192,6 +200,7 @@ function Choice({
   soldOut?: boolean
   onClick: () => void
 }) {
+  const t = useT()
   return (
     <button
       // 選項按鈕也要夠大 —— 收銀員是站著用食指戳的。
@@ -207,7 +216,7 @@ function Choice({
           {delta > 0 ? `+${delta}` : delta}
         </span>
       )}
-      {soldOut && <span className="ml-1 text-xs text-amber-400">售完</span>}
+      {soldOut && <span className="ml-1 text-xs text-amber-400">{t(order.soldOutShort)}</span>}
     </button>
   )
 }

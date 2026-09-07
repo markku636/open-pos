@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { lanApi, type AppError, type LanStatus } from '@/shared/api'
+import { APP_NAME } from '@/shared/brand'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { system } from '@/shared/locales/system'
 
 /**
  * 區網連線。
@@ -22,6 +26,7 @@ import { lanApi, type AppError, type LanStatus } from '@/shared/api'
  * 所以畫面上直接這樣寫，並且把那台裝置該開的網址放大。
  */
 export default function LanPanel() {
+  const t = useT()
   const [lan, setLan] = useState<LanStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
@@ -48,11 +53,11 @@ export default function LanPanel() {
   if (error) {
     return (
       <p className="rounded border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-        查不到區網狀態：{error}
+        {t(system.lanFailed, { msg: error })}
       </p>
     )
   }
-  if (!lan) return <p className="text-sm text-slate-600">查詢中…</p>
+  if (!lan) return <p className="text-sm text-slate-600">{t(ui.loading)}</p>
 
   return (
     <div className="space-y-4">
@@ -60,38 +65,36 @@ export default function LanPanel() {
           全店印好的桌卡 QR 會在同一秒集體失效，而畫面上什麼事都沒有。 */}
       {lan.ipChanged && (
         <p className="rounded border border-amber-700 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
-          ⚠ 主機的 IP 從 <span className="font-mono">{lan.previousIp}</span> 變成{' '}
-          <span className="font-mono">{lan.ip}</span>。
+          {/* IP 走佔位符而不是 <span className="font-mono">：中文的「從 A 變成 B」、
+              英文的 from A to B、日文的 A から B に，語序各不相同 ——
+              把句子拆成前後兩半再用 JSX 接回去，三種語言只有一種會對。 */}
+          ⚠ {t(system.ipChanged, { from: lan.previousIp ?? '', to: lan.ip ?? '' })}
           <br />
-          平板上存的網址要改，貼在桌上的 QR 也要重印。
-          <span className="text-amber-300">
-            要避免它再發生，請到路由器把這台主機設成固定 IP 或 DHCP 保留。
-          </span>
+          {t(system.ipChangedAction)}
+          <span className="text-amber-300">{t(system.ipChangedFix)}</span>
         </p>
       )}
 
       {lan.kdsUrl ? (
         <div className="rounded border border-slate-700 bg-slate-900/60 p-4">
-          <div className="text-xs text-slate-500">廚房平板要開的網址</div>
+          <div className="text-xs text-slate-500">{t(system.kdsUrl)}</div>
           <div className="mt-1 flex items-center gap-3">
             <span className="select-all font-mono text-xl text-sky-300">{lan.kdsUrl}</span>
             <button
               className="rounded bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700"
               onClick={() => copy('kds', lan.kdsUrl!)}
             >
-              {copied === 'kds' ? '已複製' : '複製'}
+              {copied === 'kds' ? t(system.copied) : t(system.copy)}
             </button>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            用平板的瀏覽器打開這個網址就是廚房畫面。開得起來就代表整條路都通了 ——
-            <span className="text-slate-400">
-              這一頁上的檢查證明不了防火牆，只有另一台裝置能證明。
-            </span>
+            {t(system.kdsHint)}
+            <span className="text-slate-400">{t(system.kdsHintFirewall)}</span>
           </p>
         </div>
       ) : (
         <p className="rounded border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-          找不到可用的區網位址。主機可能沒有連上網路，或只剩下虛擬網卡。
+          {t(system.noLanAddress)}
         </p>
       )}
 
@@ -104,7 +107,7 @@ export default function LanPanel() {
 
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          網卡（{lan.interfaces.length}）
+          {t(system.interfaces, { n: lan.interfaces.length })}
         </h3>
         <ul className="space-y-1 text-sm">
           {lan.interfaces.map((i) => (
@@ -117,7 +120,9 @@ export default function LanPanel() {
               </span>
               <span className="font-mono text-slate-300">{i.ip}</span>
               {i.note && <span className="text-xs text-slate-600">{i.note}</span>}
-              {i.chosen && <span className="text-xs text-emerald-400">← 目前使用</span>}
+              {i.chosen && (
+                <span className="text-xs text-emerald-400">← {t(system.inUse)}</span>
+              )}
             </li>
           ))}
         </ul>
@@ -125,18 +130,14 @@ export default function LanPanel() {
 
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          連不上的時候
+          {t(system.troubleshoot)}
         </h3>
         <ol className="ml-4 list-decimal space-y-1 text-sm text-slate-400">
-          <li>
-            平板跟收銀機是不是連到<span className="text-slate-200">同一個</span> Wi-Fi？
-            （訪客網路通常是隔離的）
-          </li>
-          <li>AP 有沒有開「用戶端隔離 / AP Isolation」？開著的話同網段也連不到彼此。</li>
-          <li>
-            Windows 防火牆有沒有放行？第一次啟動時跳出來的對話框如果按了「取消」，
-            就要用下面這一行補回來。
-          </li>
+          {/* 原本「同一個」是用一個亮色 span 標出來的，翻譯之後整句一起翻 ——
+              強調的位置在三種語言裡都不一樣，硬切開只會讓語序壞掉。 */}
+          <li>{t(system.tipSameWifi)}</li>
+          <li>{t(system.tipApIsolation)}</li>
+          <li>{t(system.tipFirewall)}</li>
         </ol>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <code className="flex-1 select-all rounded bg-slate-950 px-3 py-2 font-mono text-xs text-slate-300">
@@ -146,13 +147,13 @@ export default function LanPanel() {
             className="rounded bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700"
             onClick={() => copy('fw', lan.firewallCommand)}
           >
-            {copied === 'fw' ? '已複製' : '複製'}
+            {copied === 'fw' ? t(system.copied) : t(system.copy)}
           </button>
         </div>
         {/* 不自己偷偷提權改防火牆：開源專案這樣做會被質疑，而且使用者
             也該知道自己的機器被改了什麼。 */}
         <p className="mt-1 text-xs text-slate-600">
-          在「命令提示字元（系統管理員）」貼上執行。open-pos 不會自己動你的防火牆設定。
+          {t(system.firewallNote, { app: APP_NAME })}
         </p>
       </section>
 
@@ -160,7 +161,7 @@ export default function LanPanel() {
         className="rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
         onClick={load}
       >
-        重新檢查
+        {t(system.recheck)}
       </button>
     </div>
   )

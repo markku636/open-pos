@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { auditApi, type AppError, type AuditGroup, type AuditReport } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { reports } from '@/shared/locales/reports'
 import { formatMoney } from '@/shared/money'
 import { hhmm } from '@/shared/time'
 
@@ -21,6 +24,7 @@ import { hhmm } from '@/shared/time'
  * 防弊報表比沒有更糟，因為它看起來是完整的。
  */
 export default function AuditPanel() {
+  const t = useT()
   const [report, setReport] = useState<AuditReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [from, setFrom] = useState('')
@@ -58,7 +62,7 @@ export default function AuditPanel() {
     <div className="h-full space-y-5 overflow-y-auto pr-2">
       <section className="flex flex-wrap items-end gap-3 rounded border border-slate-800 bg-slate-900/40 px-4 py-3">
         <label>
-          <span className="mb-1 block text-xs text-slate-500">從</span>
+          <span className="mb-1 block text-xs text-slate-500">{t(reports.from)}</span>
           <input
             type="date"
             className="rounded bg-slate-800 px-2 py-1.5 text-sm"
@@ -67,7 +71,7 @@ export default function AuditPanel() {
           />
         </label>
         <label>
-          <span className="mb-1 block text-xs text-slate-500">到（空白＝同一天）</span>
+          <span className="mb-1 block text-xs text-slate-500">{t(reports.toSameDay)}</span>
           <input
             type="date"
             className="rounded bg-slate-800 px-2 py-1.5 text-sm"
@@ -81,18 +85,20 @@ export default function AuditPanel() {
             checked={moneyOnly}
             onChange={(e) => setMoneyOnly(e.target.checked)}
           />
-          只看動到錢的
+          {t(reports.moneyOnly)}
         </label>
         {action && (
           <button
             className="rounded bg-sky-900 px-3 py-1.5 text-sm hover:bg-sky-800"
             onClick={() => setAction(null)}
           >
-            只看「{report?.byAction.find((g) => g.key === action)?.label ?? action}」✕
+            {t(reports.filterOnly, {
+              label: report?.byAction.find((g) => g.key === action)?.label ?? action,
+            })}
           </button>
         )}
         <span className="ml-auto pb-1.5 text-right">
-          <span className="block text-xs text-slate-500">這段期間動到的錢</span>
+          <span className="block text-xs text-slate-500">{t(reports.moneyMoved)}</span>
           <span
             className={`font-mono text-xl ${
               (report?.totalAmount ?? 0) < 0 ? 'text-amber-300' : 'text-slate-300'
@@ -113,39 +119,37 @@ export default function AuditPanel() {
         <>
           <div className="grid gap-4 md:grid-cols-2">
             <Groups
-              title="依動作"
+              title={t(reports.byAction)}
               groups={report.byAction}
               active={action}
               onPick={(k) => setAction((a) => (a === k ? null : k))}
             />
-            <Groups title="依操作者" groups={report.byActor} />
+            <Groups title={t(reports.byActor)} groups={report.byActor} />
           </div>
 
           <section>
             <h3 className="mb-2 text-sm text-slate-400">
-              明細
+              {t(reports.details)}
               {report.truncated && (
-                <span className="ml-2 text-amber-400">
-                  只顯示最近 500 筆（上面的統計是完整的）
-                </span>
+                <span className="ml-2 text-amber-400">{t(reports.truncated)}</span>
               )}
             </h3>
             {report.rows.length === 0 ? (
               <p className="rounded bg-slate-900/40 px-3 py-8 text-center text-sm text-slate-600">
-                這段期間沒有紀錄。
+                {t(reports.noRecords)}
               </p>
             ) : (
               <div className="overflow-x-auto rounded border border-slate-800">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-900/60 text-left text-xs text-slate-500">
                     <tr>
-                      <th className="px-3 py-2">時間</th>
-                      <th className="px-3 py-2">動作</th>
-                      <th className="px-3 py-2">對象</th>
-                      <th className="px-3 py-2">操作者</th>
-                      <th className="px-3 py-2">原因</th>
-                      <th className="px-3 py-2">簽核</th>
-                      <th className="px-3 py-2 text-right">金額</th>
+                      <th className="px-3 py-2">{t(reports.colTime)}</th>
+                      <th className="px-3 py-2">{t(reports.colAction)}</th>
+                      <th className="px-3 py-2">{t(reports.colTarget)}</th>
+                      <th className="px-3 py-2">{t(reports.colActor)}</th>
+                      <th className="px-3 py-2">{t(reports.colReason)}</th>
+                      <th className="px-3 py-2">{t(reports.colApproval)}</th>
+                      <th className="px-3 py-2 text-right">{t(reports.colAmount)}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -199,12 +203,13 @@ function Groups({
   active?: string | null
   onPick?: (key: string) => void
 }) {
+  const t = useT()
   const worst = Math.max(1, ...groups.map((g) => Math.abs(g.amount)))
   return (
     <section className="rounded border border-slate-800 bg-slate-900/40 p-3">
       <h3 className="mb-2 text-sm text-slate-400">{title}</h3>
       {groups.length === 0 ? (
-        <p className="py-4 text-center text-xs text-slate-600">沒有資料</p>
+        <p className="py-4 text-center text-xs text-slate-600">{t(ui.noData)}</p>
       ) : (
         <ul className="space-y-1">
           {groups.map((g) => (

@@ -9,6 +9,9 @@ import {
   type BillPayment,
   type ReasonCode,
 } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { sales } from '@/shared/locales/sales'
 import { formatMoney, parseMoney } from '@/shared/money'
 import { hhmm } from '@/shared/time'
 
@@ -28,6 +31,7 @@ import { hhmm } from '@/shared/time'
  * 拿著三天前的收據回來是常態。
  */
 export default function BillsPanel() {
+  const t = useT()
   const [bills, setBills] = useState<Bill[] | null>(null)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -61,7 +65,7 @@ export default function BillsPanel() {
       <div className="flex min-h-0 w-96 shrink-0 flex-col">
         <input
           className="mb-3 w-full rounded bg-slate-900 px-3 py-2.5"
-          placeholder="單號末幾碼（空白＝今天全部）"
+          placeholder={t(sales.billSearchPlaceholder)}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -74,10 +78,10 @@ export default function BillsPanel() {
 
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
           {bills === null ? (
-            <p className="py-8 text-center text-sm text-slate-600">載入中…</p>
+            <p className="py-8 text-center text-sm text-slate-600">{t(ui.loading)}</p>
           ) : bills.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-600">
-              {query ? '找不到這個單號' : '今天還沒有結過帳'}
+              {query ? t(sales.billNotFound) : t(sales.noBillsToday)}
             </p>
           ) : (
             bills.map((b) => (
@@ -97,13 +101,13 @@ export default function BillsPanel() {
                 <span className="text-xs text-slate-600">{hhmm(b.settledAt)}</span>
                 {b.splitLabel && (
                   <span className="rounded bg-slate-800 px-1 text-xs text-slate-400">
-                    分帳 {b.splitLabel}
+                    {t(sales.splitLabel, { label: b.splitLabel })}
                   </span>
                 )}
                 <span className="ml-auto font-mono">{formatMoney(b.grandTotal)}</span>
                 {b.refundedTotal > 0 && (
                   <span className="text-xs text-amber-400">
-                    已退 {formatMoney(b.refundedTotal)}
+                    {t(sales.refundedAmount, { amount: formatMoney(b.refundedTotal) })}
                   </span>
                 )}
               </button>
@@ -124,9 +128,7 @@ export default function BillsPanel() {
             }}
           />
         ) : (
-          <p className="py-24 text-center text-sm text-slate-600">
-            左邊選一張帳單。退款需要主管權限，而且一定要選原因。
-          </p>
+          <p className="py-24 text-center text-sm text-slate-600">{t(sales.pickBill)}</p>
         )}
       </div>
     </div>
@@ -142,6 +144,7 @@ function RefundForm({
   done: string | null
   onDone: (msg: string) => void | Promise<void>
 }) {
+  const t = useT()
   const [reasons, setReasons] = useState<ReasonCode[]>([])
   const [reasonId, setReasonId] = useState('')
   const [note, setNote] = useState('')
@@ -156,7 +159,7 @@ function RefundForm({
     try {
       await reprintApi.receipt(bill.id)
       setError(null)
-      await onDone('補印的收據已經送進出單佇列。')
+      await onDone(t(sales.reprintQueued))
     } catch (e) {
       setError((e as AppError).message ?? String(e))
     } finally {
@@ -206,9 +209,11 @@ function RefundForm({
       setNote('')
       setError(null)
       await onDone(
-        `已退 ${formatMoney(r.amount)}（${r.methodName}）　這張單累計退了 ${formatMoney(
-          r.refundedTotal,
-        )}`,
+        t(sales.refundDone, {
+          amount: formatMoney(r.amount),
+          method: r.methodName,
+          total: formatMoney(r.refundedTotal),
+        }),
       )
     } catch (e) {
       setError((e as AppError).message ?? String(e))
@@ -225,20 +230,26 @@ function RefundForm({
         <span className="ml-auto text-2xl font-semibold">{formatMoney(bill.grandTotal)}</span>
       </div>
       <div className="mt-1 flex items-center gap-3">
-        <p className="text-xs text-slate-600">
-          {bill.businessDate} {hhmm(bill.settledAt)}
-          {bill.splitLabel && `　分帳 ${bill.splitLabel}`}
-          {bill.refundedTotal > 0 && `　已退 ${formatMoney(bill.refundedTotal)}`}
+        {/* 這幾段之間的間距用 gap-x 排，不要在字串前面塞全形空白 ——
+            全形空白在英文畫面上是一個突兀的寬洞，而間距本來就是版面的事。 */}
+        <p className="flex flex-wrap items-baseline gap-x-4 text-xs text-slate-600">
+          <span>
+            {bill.businessDate} {hhmm(bill.settledAt)}
+          </span>
+          {bill.splitLabel && <span>{t(sales.splitLabel, { label: bill.splitLabel })}</span>}
+          {bill.refundedTotal > 0 && (
+            <span>{t(sales.refundedAmount, { amount: formatMoney(bill.refundedTotal) })}</span>
+          )}
         </p>
         {/* 補印重送的是當初那一張的快照，而且單上會寫第幾次 ——
             兩張一樣的收據可以拿去做假帳。 */}
         <button
           className="ml-auto rounded bg-slate-800 px-3 py-1 text-xs text-slate-300 hover:bg-slate-700 disabled:opacity-40"
           disabled={reprinting}
-          title="再印一張給客人。單上會註明是第幾次補印"
+          title={t(sales.reprintHint)}
           onClick={() => void reprint()}
         >
-          補印收據
+          {t(sales.reprintReceipt)}
         </button>
       </div>
 
@@ -250,13 +261,13 @@ function RefundForm({
 
       {bill.refundable === 0 ? (
         <p className="mt-6 rounded bg-slate-900 px-3 py-6 text-center text-sm text-slate-500">
-          這張帳單已經全部退完了。
+          {t(sales.fullyRefunded)}
         </p>
       ) : (
         <>
           {/* ★ 原路退回：刷卡收的錢用現金退，帳面兩邊都平但抽屜裡少了錢。
               所以這裡只能選「退哪一筆收款」，不能選「用什麼方式退」。 */}
-          <h3 className="mt-6 mb-2 text-sm text-slate-400">退回哪一筆收款</h3>
+          <h3 className="mt-6 mb-2 text-sm text-slate-400">{t(sales.whichPayment)}</h3>
           <div className="space-y-1">
             {bill.payments.map((p) => (
               <PaymentRow
@@ -274,7 +285,7 @@ function RefundForm({
           <div className="mt-4 flex gap-2">
             <input
               className="flex-1 rounded bg-slate-800 px-3 py-2.5 text-right text-xl"
-              placeholder="退多少"
+              placeholder={t(sales.refundAmountPlaceholder)}
               inputMode="numeric"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -282,14 +293,14 @@ function RefundForm({
             <button
               className="shrink-0 rounded bg-slate-800 px-4 text-sm hover:bg-slate-700 disabled:opacity-40"
               disabled={!payment || max <= 0}
-              title="整筆退回"
+              title={t(sales.refundAllHint)}
               onClick={() => setAmount(String(max))}
             >
-              全退 {formatMoney(max)}
+              {t(sales.refundAll, { amount: formatMoney(max) })}
             </button>
           </div>
 
-          <h3 className="mt-4 mb-2 text-sm text-slate-400">原因（必填）</h3>
+          <h3 className="mt-4 mb-2 text-sm text-slate-400">{t(sales.reasonRequired)}</h3>
           <div className="flex flex-wrap gap-1">
             {reasons.map((r) => (
               <button
@@ -308,7 +319,7 @@ function RefundForm({
 
           <input
             className="mt-2 w-full rounded bg-slate-800 px-3 py-2 text-sm"
-            placeholder={reason?.requiresNote ? '說明（這個原因必填）' : '說明（選填）'}
+            placeholder={t(reason?.requiresNote ? sales.noteRequired : sales.noteOptional)}
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
@@ -324,11 +335,9 @@ function RefundForm({
             disabled={!ok}
             onClick={() => void submit()}
           >
-            退款
+            {t(sales.refund)}
           </button>
-          <p className="mt-2 text-center text-xs text-slate-600">
-            會印一張退款單給客人簽名，並留下簽核紀錄。
-          </p>
+          <p className="mt-2 text-center text-xs text-slate-600">{t(sales.refundFootnote)}</p>
         </>
       )}
     </div>
@@ -344,6 +353,7 @@ function PaymentRow({
   active: boolean
   onPick: () => void
 }) {
+  const t = useT()
   const spent = payment.refundable === 0
   return (
     <button
@@ -357,9 +367,11 @@ function PaymentRow({
       <span className="font-mono text-slate-400">{formatMoney(payment.amount)}</span>
       <span className="ml-auto text-xs">
         {spent ? (
-          <span className="text-slate-600">已退完</span>
+          <span className="text-slate-600">{t(sales.paymentFullyRefunded)}</span>
         ) : (
-          <span className="text-slate-400">可退 {formatMoney(payment.refundable)}</span>
+          <span className="text-slate-400">
+            {t(sales.paymentRefundable, { amount: formatMoney(payment.refundable) })}
+          </span>
         )}
       </span>
     </button>

@@ -7,6 +7,9 @@ import {
   type Insight,
   type NamedTotal,
 } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { reports } from '@/shared/locales/reports'
 import { formatMoney } from '@/shared/money'
 
 /**
@@ -24,6 +27,7 @@ import { formatMoney } from '@/shared/money'
  * 多數人只會打開一次。
  */
 export default function InsightPanel() {
+  const t = useT()
   const [data, setData] = useState<Insight | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [range, setRange] = useState<{ from: string; to: string } | null>(null)
@@ -46,20 +50,20 @@ export default function InsightPanel() {
     <div className="h-full space-y-5 overflow-y-auto pr-2">
       <section className="flex flex-wrap items-end gap-3 rounded border border-slate-800 bg-slate-900/40 px-4 py-3">
         <div className="flex gap-1">
-          <Preset label="今天" onClick={() => setRange(null)} active={range === null} />
+          <Preset label={t(reports.today)} onClick={() => setRange(null)} active={range === null} />
           <Preset
-            label="最近 7 天"
+            label={t(reports.last7Days)}
             active={!!range && daysBetween(range) === 6}
             onClick={() => setRange(lastDays(7))}
           />
           <Preset
-            label="最近 30 天"
+            label={t(reports.last30Days)}
             active={!!range && daysBetween(range) === 29}
             onClick={() => setRange(lastDays(30))}
           />
         </div>
         <label>
-          <span className="mb-1 block text-xs text-slate-500">從</span>
+          <span className="mb-1 block text-xs text-slate-500">{t(reports.from)}</span>
           <input
             type="date"
             className="rounded bg-slate-800 px-2 py-1.5 text-sm"
@@ -70,7 +74,7 @@ export default function InsightPanel() {
           />
         </label>
         <label>
-          <span className="mb-1 block text-xs text-slate-500">到</span>
+          <span className="mb-1 block text-xs text-slate-500">{t(reports.to)}</span>
           <input
             type="date"
             className="rounded bg-slate-800 px-2 py-1.5 text-sm"
@@ -81,9 +85,9 @@ export default function InsightPanel() {
 
         {data && (
           <div className="ml-auto flex gap-6 text-right">
-            <Stat label="營業額" value={formatMoney(data.total)} big />
-            <Stat label="帳單數" value={String(data.bills)} />
-            <Stat label="平均客單" value={formatMoney(data.averageBill)} />
+            <Stat label={t(reports.revenue)} value={formatMoney(data.total)} big />
+            <Stat label={t(reports.billCount)} value={String(data.bills)} />
+            <Stat label={t(reports.averageBill)} value={formatMoney(data.averageBill)} />
           </div>
         )}
       </section>
@@ -96,7 +100,7 @@ export default function InsightPanel() {
 
       {data && data.bills === 0 && (
         <p className="rounded bg-slate-900/40 px-3 py-10 text-center text-sm text-slate-600">
-          這段期間沒有結過帳。
+          {t(reports.noSales)}
         </p>
       )}
 
@@ -104,10 +108,25 @@ export default function InsightPanel() {
         <>
           <Hours hours={data.hours} />
           <div className="grid gap-4 md:grid-cols-2">
-            <Bars title="內用 / 外帶" rows={data.channels} unit="張" />
-            <Bars title="折扣與招待" rows={data.discounts} unit="次" tone="amber" />
-            <Bars title="退點與作廢" rows={data.voids} unit="項" tone="amber" />
-            <Bars title="品項排行" rows={data.items} unit="份" limit={12} />
+            <Bars title={t(reports.channels)} rows={data.channels} unit={t(reports.unitBills)} />
+            <Bars
+              title={t(reports.discounts)}
+              rows={data.discounts}
+              unit={t(reports.unitTimes)}
+              tone="amber"
+            />
+            <Bars
+              title={t(reports.voids)}
+              rows={data.voids}
+              unit={t(reports.unitLines)}
+              tone="amber"
+            />
+            <Bars
+              title={t(reports.topItems)}
+              rows={data.items}
+              unit={t(reports.unitServings)}
+              limit={12}
+            />
           </div>
         </>
       )}
@@ -123,6 +142,7 @@ export default function InsightPanel() {
  * 真正有意義的那幾格變窄。
  */
 function Hours({ hours }: { hours: HourBucket[] }) {
+  const t = useT()
   const peak = Math.max(1, ...hours.map((h) => h.total))
   const busiest = hours.reduce<HourBucket | null>(
     (m, h) => (!m || h.total > m.total ? h : m),
@@ -131,10 +151,14 @@ function Hours({ hours }: { hours: HourBucket[] }) {
   return (
     <section className="rounded border border-slate-800 bg-slate-900/40 p-4">
       <h3 className="mb-3 text-sm text-slate-400">
-        時段分布
+        {t(reports.byHour)}
         {busiest && (
           <span className="ml-2 text-slate-500">
-            最忙的是 {busiest.hour}:00–{busiest.hour + 1}:00（{formatMoney(busiest.total)}）
+            {t(reports.busiest, {
+              from: busiest.hour,
+              to: busiest.hour + 1,
+              money: formatMoney(busiest.total),
+            })}
           </span>
         )}
       </h3>
@@ -152,7 +176,11 @@ function Hours({ hours }: { hours: HourBucket[] }) {
             <div
               className={`w-full rounded-t ${h === busiest ? 'bg-sky-500' : 'bg-sky-800'}`}
               style={{ height: `${Math.max(3, (h.total / peak) * 85)}%` }}
-              title={`${h.hour}:00　${formatMoney(h.total)}　${h.bills} 張`}
+              title={t(reports.hourTip, {
+                hour: h.hour,
+                money: formatMoney(h.total),
+                n: h.bills,
+              })}
             />
             <span className="text-center font-mono text-[10px] text-slate-500">{h.hour}</span>
           </div>
@@ -175,6 +203,7 @@ function Bars({
   tone?: 'slate' | 'amber'
   limit?: number
 }) {
+  const t = useT()
   const shown = limit ? rows.slice(0, limit) : rows
   const peak = Math.max(1, ...shown.map((r) => Math.abs(r.amount)))
   return (
@@ -182,11 +211,11 @@ function Bars({
       <h3 className="mb-2 text-sm text-slate-400">
         {title}
         {limit && rows.length > limit && (
-          <span className="ml-2 text-xs text-slate-600">（前 {limit} 名）</span>
+          <span className="ml-2 text-xs text-slate-600">{t(reports.topN, { n: limit })}</span>
         )}
       </h3>
       {shown.length === 0 ? (
-        <p className="py-4 text-center text-xs text-slate-600">沒有資料</p>
+        <p className="py-4 text-center text-xs text-slate-600">{t(ui.noData)}</p>
       ) : (
         <ul className="space-y-1">
           {shown.map((r) => (

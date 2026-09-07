@@ -10,7 +10,13 @@ import {
   type Station,
   type Transport,
 } from '@/shared/api'
+import { useT, type Msg } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+import { printer } from '@/shared/locales/printer'
 import { dateTime } from '@/shared/time'
+
+/** 翻譯函式的型別。模組層的小工具（`describe` 等）拿不到 hook，只能用參數傳。 */
+type Translate = ReturnType<typeof useT>
 
 /**
  * 出單機設定。
@@ -20,6 +26,7 @@ import { dateTime } from '@/shared/time'
  * 每一個失敗都必須說出下一步該做什麼，不能只說「失敗」。
  */
 export default function PrinterSettings() {
+  const t = useT()
   const [printers, setPrinters] = useState<Printer[]>([])
   const [stations, setStations] = useState<Station[]>([])
   const [jobs, setJobs] = useState<PrintJob[]>([])
@@ -77,21 +84,22 @@ export default function PrinterSettings() {
       {/* ─── 印表機 ───────────────────────────────────── */}
       <section>
         <header className="mb-3 flex items-center gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">出單機</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            {t(printer.sectionPrinters)}
+          </h2>
           <button
             className="rounded bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
             onClick={() => setEditing(blankPrinter())}
           >
-            新增
+            {t(ui.add)}
           </button>
         </header>
 
         {printers.length === 0 && !editing && (
           <p className="rounded border border-slate-800 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
-            還沒有設定任何出單機。
+            {t(printer.emptyPrinters)}
             <span className="mt-1 block text-xs text-slate-500">
-              最常見的接法是網路型：把印表機接上店裡的網路，在它印出來的自我測試頁上找到
-              IP，連接埠填 9100。
+              {t(printer.emptyPrintersHint)}
             </span>
           </p>
         )}
@@ -103,14 +111,16 @@ export default function PrinterSettings() {
               className="flex flex-wrap items-center gap-3 rounded border border-slate-800 bg-slate-900/40 px-4 py-3"
             >
               <span className="font-medium">{p.name}</span>
-              <span className="font-mono text-xs text-slate-500">{describe(p.transport)}</span>
+              <span className="font-mono text-xs text-slate-500">{describe(p.transport, t)}</span>
               <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
                 {p.caps.paper === 'mm58' ? '58mm' : '80mm'}
               </span>
-              {p.lastProbeOk === true && <span className="text-xs text-emerald-400">● 連得上</span>}
+              {p.lastProbeOk === true && (
+                <span className="text-xs text-emerald-400">{t(printer.probeOk)}</span>
+              )}
               {p.lastProbeOk === false && (
                 <span className="text-xs text-amber-400" title={p.lastError ?? ''}>
-                  ▲ 連不上
+                  {t(printer.probeFail)}
                 </span>
               )}
 
@@ -125,28 +135,35 @@ export default function PrinterSettings() {
                     })
                   }
                 >
-                  測試連線
+                  {t(printer.testConnection)}
                 </button>
                 <button
                   className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
                   disabled={busy}
-                  title="印一張看得懂就代表設定正確的紙"
-                  onClick={() => void run(() => printerApi.testPrint(p.id), `已送出測試單到「${p.name}」`)}
+                  title={t(printer.testPrintHint)}
+                  onClick={() =>
+                    void run(
+                      () => printerApi.testPrint(p.id),
+                      t(printer.testPrintSent, { name: p.name }),
+                    )
+                  }
                 >
-                  測試列印
+                  {t(printer.testPrint)}
                 </button>
                 <button
                   className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
                   onClick={() => setEditing(toInput(p))}
                 >
-                  編輯
+                  {t(printer.edit)}
                 </button>
                 <button
                   className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-800 hover:text-red-400"
                   disabled={busy}
-                  onClick={() => void run(() => printerApi.remove(p.id), `已移除「${p.name}」`)}
+                  onClick={() =>
+                    void run(() => printerApi.remove(p.id), t(printer.removed, { name: p.name }))
+                  }
                 >
-                  移除
+                  {t(printer.remove)}
                 </button>
               </div>
             </div>
@@ -162,7 +179,7 @@ export default function PrinterSettings() {
               void run(async () => {
                 await printerApi.upsert(input)
                 setEditing(null)
-              }, '已儲存')
+              }, t(printer.saved))
             }
           />
         )}
@@ -171,26 +188,29 @@ export default function PrinterSettings() {
       {/* ─── 出單分區 ─────────────────────────────────── */}
       <section>
         <header className="mb-1 flex items-center gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">出單分區</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            {t(printer.sectionStations)}
+          </h2>
           <button
             className="rounded bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
             disabled={busy}
             onClick={() => {
-              const name = prompt('分區名稱（例如：飲料吧、熱炒區）')?.trim()
-              if (name) void run(() => printerApi.upsertStation({ name }), `已新增「${name}」`)
+              const name = prompt(t(printer.stationNamePrompt))?.trim()
+              if (name)
+                void run(
+                  () => printerApi.upsertStation({ name }),
+                  t(printer.stationAdded, { name }),
+                )
             }}
           >
-            新增
+            {t(ui.add)}
           </button>
         </header>
-        <p className="mb-3 text-xs text-slate-500">
-          分區是「飲料吧」這種穩定的概念，底下綁哪一台機器是設定。
-          品項直接綁印表機的話，換一台機器就要去改幾百筆菜單。
-        </p>
+        <p className="mb-3 text-xs text-slate-500">{t(printer.stationsHint)}</p>
 
         {stations.length === 0 ? (
           <p className="rounded border border-slate-800 bg-slate-900/40 px-4 py-4 text-sm text-slate-400">
-            還沒有分區。只有一台機器的店家不需要設，所有單都會印到那一台。
+            {t(printer.emptyStations)}
           </p>
         ) : (
           <div className="space-y-2">
@@ -203,15 +223,20 @@ export default function PrinterSettings() {
                   <span className="font-medium">{s.name}</span>
                   <span className="text-xs text-slate-500">
                     {s.printers.length === 0
-                      ? '⚠ 還沒綁機器 —— 這一區的單會印到櫃檯並標成代印'
-                      : `${s.printers.length} 台`}
+                      ? t(printer.stationUnbound)
+                      : t(printer.printerCount, { n: s.printers.length })}
                   </span>
                   <button
                     className="ml-auto rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-800 hover:text-red-400"
                     disabled={busy}
-                    onClick={() => void run(() => printerApi.removeStation(s.id), `已刪除「${s.name}」`)}
+                    onClick={() =>
+                      void run(
+                        () => printerApi.removeStation(s.id),
+                        t(printer.stationDeleted, { name: s.name }),
+                      )
+                    }
                   >
-                    刪除
+                    {t(ui.delete)}
                   </button>
                 </div>
 
@@ -230,9 +255,9 @@ export default function PrinterSettings() {
                         title={
                           bound
                             ? bound.mode === 'always'
-                              ? '每一次都印（例如櫃檯留底）'
-                              : '這一區的主要機器'
-                            : '點一下綁上去'
+                              ? t(printer.bindAlwaysHint)
+                              : t(printer.bindPrimaryHint)
+                            : t(printer.bindHint)
                         }
                         onClick={() =>
                           void run(() =>
@@ -245,7 +270,8 @@ export default function PrinterSettings() {
                         }
                       >
                         {p.name}
-                        {bound && (bound.mode === 'always' ? ' · 每次' : ' · 主要')}
+                        {bound &&
+                          ` · ${t(bound.mode === 'always' ? printer.bindAlways : printer.bindPrimary)}`}
                       </button>
                     )
                   })}
@@ -259,15 +285,12 @@ export default function PrinterSettings() {
       {/* ─── 列印紀錄 ─────────────────────────────────── */}
       <section>
         <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
-          最近的單
+          {t(printer.sectionJobs)}
         </h2>
-        <p className="mb-3 text-xs text-slate-500">
-          印失敗的單會留在這裡。POS 最常見的客訴是「廚房沒收到單」，
-          所以這一頁存在的意義就是讓失敗看得見。
-        </p>
+        <p className="mb-3 text-xs text-slate-500">{t(printer.jobsHint)}</p>
 
         {jobs.length === 0 ? (
-          <p className="text-sm text-slate-600">還沒有列印紀錄。</p>
+          <p className="text-sm text-slate-600">{t(printer.emptyJobs)}</p>
         ) : (
           <div className="space-y-1">
             {jobs.map((j) => (
@@ -275,10 +298,10 @@ export default function PrinterSettings() {
                 key={j.id}
                 className="flex flex-wrap items-center gap-3 rounded bg-slate-900/40 px-3 py-2 text-sm"
               >
-                <span className={statusColor(j.status)}>{statusLabel(j.status)}</span>
+                <span className={statusColor(j.status)}>{statusLabel(j.status, t)}</span>
                 <span className="text-slate-400">{j.printerName}</span>
                 {j.stationName && <span className="text-xs text-slate-500">{j.stationName}</span>}
-                <span className="text-xs text-slate-600">{reasonLabel(j.reason)}</span>
+                <span className="text-xs text-slate-600">{reasonLabel(j.reason, t)}</span>
                 <span className="font-mono text-xs text-slate-600">
                   {dateTime(j.createdAt)}
                 </span>
@@ -291,9 +314,9 @@ export default function PrinterSettings() {
                   <button
                     className="ml-auto rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
                     disabled={busy}
-                    onClick={() => void run(() => printerApi.retryJob(j.id), '已放回佇列')}
+                    onClick={() => void run(() => printerApi.retryJob(j.id), t(printer.requeued))}
                   >
-                    補印
+                    {t(printer.reprint)}
                   </button>
                 )}
               </div>
@@ -349,30 +372,32 @@ function toInput(p: Printer): PrinterInput {
   }
 }
 
-function describe(t: Transport): string {
-  switch (t.kind) {
+function describe(transport: Transport, t: Translate): string {
+  switch (transport.kind) {
     case 'network':
-      return `${t.host}:${t.port}`
+      return `${transport.host}:${transport.port}`
     case 'file':
-      return t.path
+      return transport.path
     case 'usb':
-      return `USB ${t.vid.toString(16)}:${t.pid.toString(16)}`
+      return `USB ${transport.vid.toString(16)}:${transport.pid.toString(16)}`
     case 'bluetooth':
-      return `藍牙 ${t.addr}`
+      return t(printer.bluetooth, { addr: transport.addr })
   }
 }
 
-function statusLabel(s: PrintJob['status']): string {
-  return (
-    {
-      pending: '● 排隊中',
-      printing: '● 列印中',
-      done: '● 已印出',
-      failed: '▲ 失敗',
-      dead: '■ 印不出來',
-      cancelled: '— 已取消',
-    } as const
-  )[s]
+function statusLabel(s: PrintJob['status'], t: Translate): string {
+  return t(
+    (
+      {
+        pending: printer.jobPending,
+        printing: printer.jobPrinting,
+        done: printer.jobDone,
+        failed: printer.jobFailed,
+        dead: printer.jobDead,
+        cancelled: printer.jobCancelled,
+      } as const
+    )[s],
+  )
 }
 
 function statusColor(s: PrintJob['status']): string {
@@ -383,16 +408,18 @@ function statusColor(s: PrintJob['status']): string {
   return 'text-sky-400'
 }
 
-function reasonLabel(r: string): string {
-  return (
-    ({
-      new_order: '新單',
-      add_items: '加點',
-      void: '取消',
-      reprint: '補印',
-      settle: '結帳',
-    } as Record<string, string>)[r] ?? r
-  )
+function reasonLabel(r: string, t: Translate): string {
+  const msg = (
+    {
+      new_order: printer.reasonNewOrder,
+      add_items: printer.reasonAddItems,
+      void: printer.reasonVoid,
+      reprint: printer.reasonReprint,
+      settle: printer.reasonSettle,
+    } as Record<string, Msg | undefined>
+  )[r]
+  // 認不得的原因原樣印出來：那是後端新加的類型，顯示英文代碼也比顯示空白好查。
+  return msg ? t(msg) : r
 }
 
 function PrinterForm({
@@ -406,6 +433,7 @@ function PrinterForm({
   onCancel: () => void
   onSave: (input: PrinterInput) => void
 }) {
+  const t = useT()
   const [form, setForm] = useState<PrinterInput>(value)
   const net = form.transport.kind === 'network' ? form.transport : null
 
@@ -413,10 +441,10 @@ function PrinterForm({
     <div className="mt-3 space-y-3 rounded border border-slate-700 bg-slate-900 p-4">
       <div className="flex flex-wrap gap-3">
         <label className="flex flex-col gap-1 text-xs text-slate-400">
-          名稱
+          {t(printer.fieldName)}
           <input
             className="w-48 rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            placeholder="櫃檯、飲料吧…"
+            placeholder={t(printer.namePlaceholder)}
             autoFocus
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -424,7 +452,7 @@ function PrinterForm({
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-slate-400">
-          IP 位址
+          {t(printer.fieldHost)}
           <input
             className="w-40 rounded bg-slate-800 px-3 py-2 font-mono text-sm text-slate-100"
             placeholder="192.168.1.23"
@@ -439,7 +467,7 @@ function PrinterForm({
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-slate-400">
-          連接埠
+          {t(printer.fieldPort)}
           <input
             className="w-24 rounded bg-slate-800 px-3 py-2 font-mono text-sm text-slate-100"
             inputMode="numeric"
@@ -458,19 +486,19 @@ function PrinterForm({
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-slate-400">
-          紙寬
+          {t(printer.fieldPaper)}
           <select
             className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
             value={form.paper}
             onChange={(e) => setForm({ ...form, paper: e.target.value as PrinterInput['paper'] })}
           >
-            <option value="mm80">80mm（48 欄）</option>
-            <option value="mm58">58mm（32 欄）</option>
+            <option value="mm80">{t(printer.paper80)}</option>
+            <option value="mm58">{t(printer.paper58)}</option>
           </select>
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-slate-400">
-          中文編碼
+          {t(printer.fieldEncoding)}
           <select
             className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
             value={form.encoding}
@@ -478,19 +506,16 @@ function PrinterForm({
               setForm({ ...form, encoding: e.target.value as PrinterInput['encoding'] })
             }
           >
-            <option value="big5">Big5（台灣機常見）</option>
-            <option value="gb18030">GB18030（陸製機常見）</option>
-            <option value="utf8">UTF-8（少數新款）</option>
+            <option value="big5">{t(printer.encodingBig5)}</option>
+            <option value="gb18030">{t(printer.encodingGb18030)}</option>
+            <option value="utf8">{t(printer.encodingUtf8)}</option>
           </select>
         </label>
       </div>
 
       <p className="text-xs text-slate-500">
-        大部分出單機的連接埠都是 9100。IP 可以在機器的自我測試頁上找到（多數機型是
-        按住走紙鍵再開機會印出來）。
-        <span className="mt-1 block">
-          印出來變成問號或亂碼，通常是編碼選錯了 —— 換一個再按「測試列印」。
-        </span>
+        {t(printer.formHint)}
+        <span className="mt-1 block">{t(printer.formHintEncoding)}</span>
       </p>
 
       <div className="flex gap-2">
@@ -498,14 +523,14 @@ function PrinterForm({
           className="rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
           onClick={onCancel}
         >
-          取消
+          {t(ui.cancel)}
         </button>
         <button
           className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium hover:bg-emerald-600 disabled:opacity-40"
           disabled={busy || !form.name.trim()}
           onClick={() => onSave(form)}
         >
-          儲存
+          {t(ui.save)}
         </button>
       </div>
     </div>

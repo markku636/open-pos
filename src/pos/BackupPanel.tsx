@@ -7,6 +7,9 @@ import {
   type BackupFile,
   type PendingRestore,
 } from '@/shared/api'
+import { APP_NAME } from '@/shared/brand'
+import { useT } from '@/shared/i18n'
+import { system } from '@/shared/locales/system'
 import { dateTime } from '@/shared/time'
 
 /**
@@ -19,6 +22,7 @@ import { dateTime } from '@/shared/time'
  * 一個「有備份但沒有人知道怎麼還原」的系統，等於沒有備份。
  */
 export default function BackupPanel() {
+  const t = useT()
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [files, setFiles] = useState<BackupFile[]>([])
   const [pending, setPending] = useState<PendingRestore | null>(null)
@@ -64,7 +68,7 @@ export default function BackupPanel() {
     if (!settings) return
     void run(
       () => backupApi.saveSettings({ ...settings, backup: { ...settings.backup, ...p } }),
-      '已儲存',
+      t(system.saved),
     )
   }
 
@@ -84,37 +88,39 @@ export default function BackupPanel() {
 
       {pending && (
         <section className="rounded border border-amber-700 bg-amber-950/40 p-4">
-          <h2 className="text-sm font-semibold text-amber-200">有一個還原在等待重新啟動</h2>
+          <h2 className="text-sm font-semibold text-amber-200">{t(system.pendingRestore)}</h2>
           <p className="mt-1 whitespace-pre-line text-sm text-amber-100/80">
-            來源：{pending.source}
-            {'\n'}關掉 open-pos 再重新開啟就會完成還原。現在的資料不會被刪除，
-            會改名成 pre-restore 留在資料夾裡。
+            {t(system.restoreSource, { source: pending.source })}
+            {'\n'}
+            {t(system.restorePendingHint, { app: APP_NAME })}
           </p>
           <button
             className="mt-3 rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
             disabled={busy}
-            onClick={() => void run(() => backupApi.cancelRestore(), '已取消還原')}
+            onClick={() =>
+              void run(() => backupApi.cancelRestore(), t(system.restoreCancelled))
+            }
           >
-            取消還原
+            {t(system.cancelRestore)}
           </button>
         </section>
       )}
 
       {/* ─── 設定 ─────────────────────────────────────── */}
       <section className="rounded border border-slate-800 bg-slate-900/40 p-4">
-        <h2 className="mb-1 text-sm font-semibold text-slate-300">備份設定</h2>
+        <h2 className="mb-1 text-sm font-semibold text-slate-300">{t(system.backupSettings)}</h2>
         <p className="mb-3 text-xs text-slate-500">
-          備份跟資料庫放在同一顆硬碟上，只防「誤刪」不防「硬碟壞掉」。
-          <span className="text-slate-400">請指定第二個位置</span>
-          —— 一支常插著的 USB 隨身碟就夠了。
+          {t(system.sameDiskWarn)}
+          <span className="text-slate-400">{t(system.setSecondLocation)}</span>
+          {t(system.usbEnough)}
         </p>
 
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex min-w-[20rem] flex-1 flex-col gap-1 text-xs text-slate-400">
-            第二個備份位置
+            {t(system.secondLocation)}
             <input
               className="rounded bg-slate-800 px-3 py-2 font-mono text-sm"
-              placeholder="E:\\ 或 E:\\pos-backup"
+              placeholder={t(system.dirPlaceholder)}
               value={dir}
               onChange={(e) => setDir(e.target.value)}
             />
@@ -124,7 +130,7 @@ export default function BackupPanel() {
             disabled={busy || !settings}
             onClick={() => patch({ externalDir: dir.trim() || null })}
           >
-            儲存位置
+            {t(system.saveLocation)}
           </button>
         </div>
 
@@ -137,7 +143,7 @@ export default function BackupPanel() {
                 disabled={busy}
                 onChange={(e) => patch({ hourly: e.target.checked })}
               />
-              每小時自動備份
+              {t(system.hourly)}
             </label>
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -146,7 +152,7 @@ export default function BackupPanel() {
                 disabled={busy}
                 onChange={(e) => patch({ onClose: e.target.checked })}
               />
-              關班與日結時各備一次
+              {t(system.onClose)}
             </label>
           </div>
         )}
@@ -159,31 +165,33 @@ export default function BackupPanel() {
               const r = await backupApi.run()
               setMessage({
                 ok: !r.externalError,
+                // 「有沒有備到第二個位置」寫成兩則完整的句子，而不是在後面接一段
+                // 「，外接位置也有一份」——中文接得起來，英日文的標點與語序接不起來。
                 text: r.externalError
-                  ? `本機備份完成（${kb(r.sizeBytes)}），但外接位置失敗：${r.externalError}`
-                  : `備份完成（${kb(r.sizeBytes)}，${r.tookMs}ms）${
-                      r.externalPath ? '，外接位置也有一份' : ''
-                    }`,
+                  ? t(system.backupExternalFailed, {
+                      size: kb(r.sizeBytes),
+                      error: r.externalError,
+                    })
+                  : t(r.externalPath ? system.backupDoneExternal : system.backupDone, {
+                      size: kb(r.sizeBytes),
+                      ms: r.tookMs,
+                    }),
               })
             })
           }
         >
-          立刻備份一次
+          {t(system.backupNow)}
         </button>
       </section>
 
       {/* ─── 備份列表與還原 ─────────────────────────── */}
       <section>
-        <h2 className="mb-1 text-sm font-semibold text-slate-300">備份檔</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          還原不會刪掉現在的資料 —— 它會被改名成 pre-restore 留在資料夾裡。
-          還原是人在慌張的時候做的事，所以不能是不可逆的。
-        </p>
+        <h2 className="mb-1 text-sm font-semibold text-slate-300">{t(system.backupFiles)}</h2>
+        <p className="mb-3 text-xs text-slate-500">{t(system.restoreSafeNote)}</p>
 
         {files.length === 0 ? (
           <p className="rounded border border-slate-800 bg-slate-900/40 px-4 py-4 text-sm text-slate-400">
-            還沒有任何備份。按上面的「立刻備份一次」試一下 ——
-            確認過自己會用，備份才有意義。
+            {t(system.noBackups)}
           </p>
         ) : (
           <div className="space-y-1">
@@ -196,7 +204,7 @@ export default function BackupPanel() {
                   className={`rounded px-2 py-0.5 text-xs ${
                     f.external ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-800 text-slate-400'
                   }`}
-                  title={f.external ? '在第二個位置（隨身碟）上' : '在本機'}
+                  title={f.external ? t(system.fileExternal) : t(system.fileLocal)}
                 >
                   {f.bucket}
                 </span>
@@ -207,13 +215,7 @@ export default function BackupPanel() {
                   className="ml-auto rounded bg-slate-800 px-3 py-1 text-xs hover:bg-amber-800"
                   disabled={busy}
                   onClick={() => {
-                    if (
-                      !confirm(
-                        `要用這份備份還原嗎？\n\n${f.name}\n\n` +
-                          '現在的資料會被改名保留（pre-restore），不會刪除。\n' +
-                          '還原會在下次啟動 open-pos 時完成。',
-                      )
-                    )
+                    if (!confirm(t(system.restoreConfirm, { name: f.name, app: APP_NAME })))
                       return
                     void run(async () => {
                       const msg = await backupApi.stageRestore(f.path)
@@ -221,7 +223,7 @@ export default function BackupPanel() {
                     })
                   }}
                 >
-                  還原
+                  {t(system.restore)}
                 </button>
               </div>
             ))}

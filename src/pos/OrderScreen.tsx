@@ -15,6 +15,10 @@ import {
   type MenuTree,
   type Order,
 } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+// 字典取名 `msg`：這個檔案裡的 `order` 已經是「那張單」，
+// 兩個東西不能共用一個名字。
+import { order as msg } from '@/shared/locales/order'
 import { formatMoney } from '@/shared/money'
 
 /** 從桌位圖帶過來的一桌。`guestCount` 只在這一桌還沒開檯時用得到。 */
@@ -46,6 +50,7 @@ export default function OrderScreen({
   seat?: Seat | null
   onLeaveSeat?: () => void
 } = {}) {
+  const t = useT()
   const [tree, setTree] = useState<MenuTree | null>(null)
   const [order, setOrder] = useState<Order | null>(null)
   const [channel, setChannel] = useState<Channel>('takeout')
@@ -181,7 +186,7 @@ export default function OrderScreen({
       setTree(tree)
       setCategory(tree.categories[0]?.id ?? null)
     }
-    if (!r.created) setError('已經有商品了，示範菜單沒有動任何東西。')
+    if (!r.created) setError(t(msg.demoAlreadySeeded))
   }
 
   const items: Item[] =
@@ -216,7 +221,7 @@ export default function OrderScreen({
               }`}
               onClick={() => setCategory('uncategorized')}
             >
-              未分類
+              {t(msg.uncategorized)}
             </button>
           )}
         </div>
@@ -225,28 +230,24 @@ export default function OrderScreen({
           {items.length === 0 ? (
             <div className="py-12 text-center text-sm text-slate-600">
               {!tree ? (
-                '載入中…'
+                t(msg.loading)
               ) : isEmpty(tree) ? (
                 // 全新安裝看到的第一個畫面。空白畫面加一句「請先建立菜單」
                 // 會讓多數人在這裡放棄 —— 先讓他們看到這套東西能動。
                 <>
-                  <p className="mb-1 text-base text-slate-400">還沒有商品</p>
-                  <p className="mb-5">
-                    建立自己的菜單，或先載一份示範資料看看這套東西怎麼運作。
-                  </p>
+                  <p className="mb-1 text-base text-slate-400">{t(msg.emptyMenuTitle)}</p>
+                  <p className="mb-5">{t(msg.emptyMenuHint)}</p>
                   <button
                     className="rounded bg-sky-800 px-5 py-3 text-base text-sky-50 hover:bg-sky-700 disabled:opacity-40"
                     disabled={busy}
                     onClick={() => void seedDemo()}
                   >
-                    載入示範菜單與桌位
+                    {t(msg.loadDemo)}
                   </button>
-                  <p className="mt-3 text-xs text-slate-700">
-                    示範資料就是一般商品，之後可以直接改或刪掉。
-                  </p>
+                  <p className="mt-3 text-xs text-slate-700">{t(msg.demoNote)}</p>
                 </>
               ) : (
-                '這一類還沒有商品 —— 請先到「商品維護」建立菜單'
+                t(msg.emptyCategory)
               )}
             </div>
           ) : (
@@ -266,7 +267,7 @@ export default function OrderScreen({
                     {formatMoney(it.basePrice)}
                   </span>
                   {it.soldOutUntil && (
-                    <span className="text-xs text-amber-400">已售完</span>
+                    <span className="text-xs text-amber-400">{t(msg.soldOut)}</span>
                   )}
                 </button>
               ))}
@@ -283,12 +284,12 @@ export default function OrderScreen({
             // 它會讓兩桌的帳同時錯掉，而且通常在結帳時才被發現。
             <button
               className="flex items-baseline gap-2 rounded bg-emerald-900/50 px-3 py-1.5 text-sm hover:bg-emerald-900/80"
-              title="離開這一桌"
+              title={t(msg.leaveTable)}
               onClick={() => onLeaveSeat?.()}
             >
               <span className="text-base font-semibold">{seat.table.code}</span>
               <span className="text-xs text-emerald-300/70">
-                {order?.guestCount ?? seat.guestCount} 位
+                {t(msg.guests, { n: order?.guestCount ?? seat.guestCount })}
               </span>
               <span className="text-xs text-slate-500">✕</span>
             </button>
@@ -304,12 +305,12 @@ export default function OrderScreen({
                 disabled={!!order && order.lines.length > 0}
                 onClick={() => setChannel(c)}
               >
-                {c === 'dine_in' ? '內用' : '外帶'}
+                {c === 'dine_in' ? t(msg.dineIn) : t(msg.takeout)}
               </button>
             ))
           )}
           <span className="ml-auto font-mono text-xs text-slate-500">
-            {order?.orderNo ?? '尚未開單'}
+            {order?.orderNo ?? t(msg.noOrderYet)}
           </span>
         </div>
 
@@ -330,7 +331,7 @@ export default function OrderScreen({
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           {!order || order.lines.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-600">
-              {seat ? `${seat.table.code} —— 點左邊的商品開始` : '點左邊的商品開始'}
+              {seat ? t(msg.cartEmptySeat, { code: seat.table.code }) : t(msg.cartEmpty)}
             </p>
           ) : (
             order.lines.map((l) => (
@@ -341,11 +342,13 @@ export default function OrderScreen({
                 <span className="min-w-0 flex-1">
                   {l.name}
                   {l.variantName && (
-                    <span className="text-slate-400">（{l.variantName}）</span>
+                    <span className="text-slate-400">
+                      {t(msg.variantParen, { name: l.variantName })}
+                    </span>
                   )}
                   {l.options.length > 0 && (
                     <span className="block text-xs text-slate-500">
-                      {l.options.join('、')}
+                      {l.options.join(t(msg.listSeparator))}
                     </span>
                   )}
                 </span>
@@ -353,7 +356,7 @@ export default function OrderScreen({
                 <button
                   className="shrink-0 px-1 text-xs text-slate-600 opacity-0 transition group-hover:opacity-100 hover:text-amber-300"
                   disabled={busy}
-                  title="這一項打折或招待"
+                  title={t(msg.lineDiscount)}
                   onClick={() => setDiscounting(l.id)}
                 >
                   %
@@ -361,7 +364,7 @@ export default function OrderScreen({
                 <button
                   className="shrink-0 px-1 text-xs text-slate-600 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
                   disabled={busy}
-                  title="退掉這一項（會通知廚房）"
+                  title={t(msg.voidLine)}
                   onClick={() => void voidLine(l.id)}
                 >
                   ✕
@@ -373,29 +376,35 @@ export default function OrderScreen({
 
         {order && order.lines.length > 0 && (
           <div className="border-t border-slate-800 p-3">
-            <Row label="小計" value={order.subtotal} />
+            <Row label={t(msg.subtotal)} value={order.subtotal} />
             {order.serviceCharge > 0 && (
-              <Row label="服務費" value={order.serviceCharge} />
+              <Row label={t(msg.serviceCharge)} value={order.serviceCharge} />
             )}
             {order.roundingAdjustment !== 0 && (
-              <Row label="進位調整" value={order.roundingAdjustment} />
+              <Row label={t(msg.rounding)} value={order.roundingAdjustment} />
             )}
             <div className="mt-2 flex items-baseline justify-between border-t border-slate-800 pt-2">
-              <span className="text-slate-400">合計</span>
+              <span className="text-slate-400">{t(msg.total)}</span>
               <span className="text-2xl font-semibold">
                 {formatMoney(order.grandTotal)}
               </span>
             </div>
             <p className="mt-1 text-right text-xs text-slate-600">
-              未稅 {formatMoney(order.salesAmount)}　稅 {formatMoney(order.taxAmount)}
+              {t(msg.taxLine, {
+                net: formatMoney(order.salesAmount),
+                tax: formatMoney(order.taxAmount),
+              })}
             </p>
 
             {/* 分帳收到一半的單長得跟一般的單一模一樣 —— 除非把它寫出來。 */}
             {order.billedTotal > 0 && order.billedTotal < order.grandTotal && (
               <p className="mt-2 rounded bg-amber-950/40 px-2 py-1.5 text-center text-sm text-amber-300">
-                已收 {order.billCount} 份 {formatMoney(order.billedTotal)}
+                {t(msg.billedParts, {
+                  n: order.billCount,
+                  amount: formatMoney(order.billedTotal),
+                })}
                 <span className="ml-2 font-semibold">
-                  還差 {formatMoney(order.grandTotal - order.billedTotal)}
+                  {t(msg.short, { amount: formatMoney(order.grandTotal - order.billedTotal) })}
                 </span>
               </p>
             )}
@@ -406,14 +415,14 @@ export default function OrderScreen({
                 disabled={busy || order.status === 'settled'}
                 onClick={() => setDiscounting('')}
               >
-                整單折扣
+                {t(msg.discountOrder)}
               </button>
               <button
                 className="flex-1 rounded bg-slate-800 py-2.5 text-sm text-slate-400 hover:bg-red-900/60 hover:text-red-200 disabled:opacity-40"
                 disabled={busy}
-                title="整張單不做了。已經送到廚房的品項會印一張取消單"
+                title={t(msg.voidOrderTitle)}
                 onClick={() => {
-                  if (!confirm('要作廢整張單嗎？\n\n已經送到廚房的品項會印一張取消單。')) return
+                  if (!confirm(t(msg.voidOrderConfirm))) return
                   void run(() => discountApi.voidOrder(order.id, order.rev)).then((r) => {
                     if (r) {
                       setOrder(null)
@@ -422,7 +431,7 @@ export default function OrderScreen({
                   })
                 }}
               >
-                作廢整單
+                {t(msg.voidOrder)}
               </button>
             </div>
 
@@ -432,8 +441,10 @@ export default function OrderScreen({
               onClick={() => setPaying(true)}
             >
               {order.billedTotal > 0
-                ? `收剩下的 ${formatMoney(order.grandTotal - order.billedTotal)}`
-                : '結帳'}
+                ? t(msg.payRemaining, {
+                    amount: formatMoney(order.grandTotal - order.billedTotal),
+                  })
+                : t(msg.checkout)}
             </button>
           </div>
         )}
@@ -481,9 +492,11 @@ export default function OrderScreen({
             if (result.remaining > 0) {
               setOrder(result.order)
               setError(
-                `已收第 ${result.splitIndex} 份 ${result.billNo}` +
-                  (result.change > 0 ? `　找零 ${formatMoney(result.change)}` : '') +
-                  `　⚠ 這張單還差 ${formatMoney(result.remaining)}`,
+                t(msg.splitPaid, { n: result.splitIndex, no: result.billNo }) +
+                  (result.change > 0
+                    ? t(msg.changeSuffix, { amount: formatMoney(result.change) })
+                    : '') +
+                  t(msg.stillShortSuffix, { amount: formatMoney(result.remaining) }),
               )
               return
             }
@@ -494,7 +507,12 @@ export default function OrderScreen({
             onLeaveSeat?.()
             // 找零要停留在畫面上讓收銀員數錢，不要一閃而過。
             if (result.change > 0) {
-              setError(`已結帳 ${result.billNo}　找零 ${formatMoney(result.change)}`)
+              setError(
+                t(msg.settled, {
+                  no: result.billNo,
+                  amount: formatMoney(result.change),
+                }),
+              )
             }
           }}
         />
@@ -510,11 +528,12 @@ export default function OrderScreen({
  * 剩下的可能被忘掉」的狀態**，而忘掉的代價是客人走出店門。
  */
 function OpenOrders({ orders, onPick }: { orders: Order[]; onPick: (o: Order) => void }) {
+  const t = useT()
   if (orders.length === 0) return null
   const sorted = [...orders].sort((a, b) => (b.billedTotal > 0 ? 1 : 0) - (a.billedTotal > 0 ? 1 : 0))
   return (
     <div className="flex flex-wrap gap-1 border-b border-slate-800 px-3 py-2">
-      <span className="mr-1 self-center text-xs text-slate-600">未結</span>
+      <span className="mr-1 self-center text-xs text-slate-600">{t(msg.openOrders)}</span>
       {sorted.map((o) => {
         const partial = o.billedTotal > 0
         return (
@@ -525,14 +544,14 @@ function OpenOrders({ orders, onPick }: { orders: Order[]; onPick: (o: Order) =>
                 ? 'bg-amber-900/60 text-amber-100 hover:bg-amber-800/60'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             }`}
-            title={partial ? '這張單分帳還沒收完' : '回到這張單'}
+            title={partial ? t(msg.openPartialTitle) : t(msg.openOrderTitle)}
             onClick={() => onPick(o)}
           >
             {o.tableLabel ?? o.orderNo.split('-').pop()}
             <span className="ml-1.5 font-mono">
               {formatMoney(partial ? o.grandTotal - o.billedTotal : o.grandTotal)}
             </span>
-            {partial && <span className="ml-1">未收</span>}
+            {partial && <span className="ml-1">{t(msg.openPartialTag)}</span>}
           </button>
         )
       })}

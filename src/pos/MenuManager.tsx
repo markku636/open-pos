@@ -12,6 +12,9 @@ import {
   type ModifierGroup,
   type Variant,
 } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { menu } from '@/shared/locales/menu'
+import { ui } from '@/shared/locales/nav'
 import { formatMoney, parseMoney } from '@/shared/money'
 
 /**
@@ -27,6 +30,7 @@ import { formatMoney, parseMoney } from '@/shared/money'
 const MODIFIERS = '__modifiers__'
 
 export default function MenuManager() {
+  const t = useT()
   const [tree, setTree] = useState<MenuTree | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -71,7 +75,7 @@ export default function MenuManager() {
   if (!tree) {
     return (
       <div className="p-6 text-slate-400">
-        {error ? <ErrorBar message={error} /> : '載入中…'}
+        {error ? <ErrorBar message={error} /> : t(menu.loading)}
       </div>
     )
   }
@@ -100,7 +104,9 @@ export default function MenuManager() {
         ) : (
           <ItemPane
             categoryId={selected === 'uncategorized' ? null : (current?.id ?? null)}
-            title={selected === 'uncategorized' ? '未分類' : (current?.name ?? '')}
+            title={
+              selected === 'uncategorized' ? t(menu.uncategorized) : (current?.name ?? '')
+            }
             items={items}
             groups={tree.modifierGroups}
             busy={busy}
@@ -119,12 +125,14 @@ export default function MenuManager() {
 }
 
 function ErrorBar({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
+  const t = useT()
   return (
     <div className="mb-3 flex items-start gap-3 rounded border border-red-800 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+      {/* 錯誤內容來自後端，語系由後端決定，前端不翻。 */}
       <span className="flex-1 whitespace-pre-wrap">{message}</span>
       {onDismiss && (
         <button className="shrink-0 text-red-400 hover:text-red-200" onClick={onDismiss}>
-          關閉
+          {t(ui.close)}
         </button>
       )}
     </div>
@@ -148,12 +156,15 @@ function CategoryPane({
   onSave: (input: { id?: string; name: string }) => void
   onDelete: (id: string) => void
 }) {
+  const t = useT()
   const [adding, setAdding] = useState('')
   const [editing, setEditing] = useState<Category | null>(null)
 
   return (
     <aside className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">分類</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {t(menu.categories)}
+      </h2>
 
       {tree.categories.map((c) =>
         editing?.id === c.id ? (
@@ -178,7 +189,7 @@ function CategoryPane({
                 setEditing(null)
               }}
             >
-              存
+              {t(menu.saveShort)}
             </button>
           </div>
         ) : (
@@ -191,7 +202,7 @@ function CategoryPane({
               }`}
               onClick={() => onSelect(c.id)}
               onDoubleClick={() => setEditing(c)}
-              title="雙擊可改名"
+              title={t(menu.renameHint)}
             >
               {c.name}
               <span className="ml-2 text-xs text-slate-500">{c.items.length}</span>
@@ -199,11 +210,11 @@ function CategoryPane({
             <button
               className="shrink-0 px-1 text-xs text-slate-600 opacity-0 transition group-hover:opacity-100 hover:text-red-400"
               disabled={busy}
-              title="刪除分類（裡面的品項會移到「未分類」，不會一起刪掉）"
+              title={t(menu.deleteCategoryHint)}
               onClick={() => {
                 if (
                   confirm(
-                    `刪除分類「${c.name}」？\n\n裡面的 ${c.items.length} 個品項會移到「未分類」，不會被刪掉。`,
+                    t(menu.deleteCategoryConfirm, { name: c.name, n: c.items.length }),
                   )
                 ) {
                   onDelete(c.id)
@@ -225,7 +236,7 @@ function CategoryPane({
           }`}
           onClick={() => onSelect('uncategorized')}
         >
-          未分類
+          {t(menu.uncategorized)}
           <span className="ml-2 text-xs text-slate-500">{tree.uncategorized.length}</span>
         </button>
       )}
@@ -240,14 +251,14 @@ function CategoryPane({
         }`}
         onClick={() => onSelect(MODIFIERS)}
       >
-        選項群組
+        {t(menu.modifierGroups)}
         <span className="ml-2 text-xs text-slate-500">{tree.modifierGroups.length}</span>
       </button>
 
       <div className="mt-2 flex gap-1">
         <input
           className="min-w-0 flex-1 rounded bg-slate-800 px-2 py-2 text-sm placeholder:text-slate-600"
-          placeholder="新增分類…"
+          placeholder={t(menu.addCategory)}
           value={adding}
           disabled={busy}
           onChange={(e) => setAdding(e.target.value)}
@@ -314,6 +325,7 @@ function ItemPane({
   onDeleteVariant: (id: string) => void
   onSetGroups: (itemId: string, groupIds: string[]) => void
 }) {
+  const t = useT()
   const [draft, setDraft] = useState(EMPTY_ITEM)
   const [expanded, setExpanded] = useState<string | null>(null)
 
@@ -327,12 +339,12 @@ function ItemPane({
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {title || '請先建立一個分類'}
+        {title || t(menu.pickCategory)}
       </h2>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 && (
-          <p className="py-8 text-center text-sm text-slate-600">這一類還沒有商品</p>
+          <p className="py-8 text-center text-sm text-slate-600">{t(menu.noItems)}</p>
         )}
 
         {items.map((it) => (
@@ -355,7 +367,7 @@ function ItemPane({
       <div className="mt-3 flex gap-2 border-t border-slate-800 pt-3">
         <input
           className="min-w-0 flex-1 rounded bg-slate-800 px-3 py-2 text-sm placeholder:text-slate-600"
-          placeholder="品名"
+          placeholder={t(menu.itemName)}
           value={draft.name}
           disabled={busy}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
@@ -363,7 +375,7 @@ function ItemPane({
         />
         <input
           className="w-28 rounded bg-slate-800 px-3 py-2 text-right text-sm placeholder:text-slate-600"
-          placeholder="價格"
+          placeholder={t(menu.itemPrice)}
           inputMode="numeric"
           value={draft.price}
           disabled={busy}
@@ -375,7 +387,7 @@ function ItemPane({
           disabled={busy || !draft.name.trim() || parseMoney(draft.price) === null}
           onClick={addItem}
         >
-          新增
+          {t(ui.add)}
         </button>
       </div>
     </section>
@@ -416,6 +428,7 @@ function ItemRow({
   groups: ModifierGroup[]
   onSetGroups: (itemId: string, groupIds: string[]) => void
 }) {
+  const t = useT()
   const [price, setPrice] = useState(String(item.basePrice))
   const [name, setName] = useState(item.name)
 
@@ -433,7 +446,7 @@ function ItemRow({
         <button
           className="w-6 shrink-0 text-slate-600 hover:text-slate-300"
           onClick={onToggle}
-          title="規格（大 / 中 / 小）"
+          title={t(menu.variantsHint)}
         >
           {expanded ? '▾' : '▸'}
         </button>
@@ -461,20 +474,22 @@ function ItemRow({
               onSave({ id: item.id, name: name.trim(), basePrice: parseMoney(price)! })
             }
           >
-            儲存
+            {t(ui.save)}
           </button>
         ) : (
           <span className="w-[52px] shrink-0 text-right text-xs text-slate-600">
-            {item.variants.length > 0 ? `${item.variants.length} 規格` : ''}
+            {item.variants.length > 0
+              ? t(menu.variantCount, { n: item.variants.length })
+              : ''}
           </span>
         )}
 
         <button
           className="shrink-0 px-1 text-xs text-slate-600 hover:text-red-400"
           disabled={busy}
-          title="刪除商品（歷史訂單不受影響）"
+          title={t(menu.deleteItemHint)}
           onClick={() => {
-            if (confirm(`刪除「${item.name}」？\n\n歷史訂單裡的紀錄不會受影響。`)) {
+            if (confirm(t(menu.deleteItemConfirm, { name: item.name }))) {
               onDelete(item.id)
             }
           }}
@@ -520,6 +535,7 @@ function VariantEditor({
   }) => void
   onDelete: (id: string) => void
 }) {
+  const t = useT()
   const [name, setName] = useState('')
   const [delta, setDelta] = useState('')
 
@@ -541,9 +557,7 @@ function VariantEditor({
   return (
     <div className="border-t border-slate-800 px-3 py-2 pl-11">
       {item.variants.length === 0 && (
-        <p className="mb-2 text-xs text-slate-600">
-          還沒有規格。加了之後點餐時會先問客人要哪一種（例如大杯 +10）。
-        </p>
+        <p className="mb-2 text-xs text-slate-600">{t(menu.noVariants)}</p>
       )}
 
       {item.variants.map((v) => (
@@ -563,7 +577,7 @@ function VariantEditor({
       <div className="mt-2 flex gap-2">
         <input
           className="min-w-0 flex-1 rounded bg-slate-800 px-2 py-1 text-sm placeholder:text-slate-600"
-          placeholder="規格名稱（大杯）"
+          placeholder={t(menu.variantName)}
           value={name}
           disabled={busy}
           onChange={(e) => setName(e.target.value)}
@@ -583,7 +597,7 @@ function VariantEditor({
           disabled={busy || !name.trim()}
           onClick={add}
         >
-          加規格
+          {t(menu.addVariant)}
         </button>
       </div>
     </div>
@@ -607,18 +621,18 @@ function GroupPicker({
   busy: boolean
   onSetGroups: (itemId: string, groupIds: string[]) => void
 }) {
+  const t = useT()
   if (groups.length === 0) {
     return (
       <div className="border-t border-slate-800 px-3 py-2 pl-11 text-xs text-slate-600">
-        還沒有選項群組。到左邊的「選項群組」建一組「甜度」或「加購」，
-        點餐時就問得出來。
+        {t(menu.noGroups)}
       </div>
     )
   }
   const on = new Set(item.modifierGroupIds)
   return (
     <div className="border-t border-slate-800 px-3 py-2 pl-11">
-      <p className="mb-1.5 text-xs text-slate-600">點這一項的時候要問：</p>
+      <p className="mb-1.5 text-xs text-slate-600">{t(menu.askOnOrder)}</p>
       <div className="flex flex-wrap gap-1.5">
         {groups.map((g) => (
           <button
@@ -638,7 +652,7 @@ function GroupPicker({
           >
             {g.name}
             <span className="ml-1 text-xs opacity-60">
-              {g.selectionType === 'single' ? '單' : '複'}
+              {g.selectionType === 'single' ? t(menu.selectSingle) : t(menu.selectMulti)}
             </span>
           </button>
         ))}

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { tableApi, type AppError, type DiningTable, type TableInput } from '@/shared/api'
+import { useT } from '@/shared/i18n'
+import { ui } from '@/shared/locales/nav'
+// 取別名是因為這個檔案裡的 `tables` 已經是桌位清單的 state ——
+// 同名的話字典會被它遮掉，而且遮到的正好是最需要翻譯的那一段。
+import { tables as tablesMsg } from '@/shared/locales/tables'
 import { formatMoney } from '@/shared/money'
 import { hhmm } from '@/shared/time'
 
@@ -27,6 +32,7 @@ export default function TableMap({
 }: {
   onPick: (table: DiningTable, guestCount: number) => void
 }) {
+  const t = useT()
   const [tables, setTables] = useState<DiningTable[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -73,16 +79,16 @@ export default function TableMap({
     }
   }
 
-  const areas = groupByArea(tables ?? [])
+  const areas = groupByArea(tables ?? [], t(tablesMsg.unzoned))
   const seated = (tables ?? []).filter((t) => t.session).length
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-3 flex items-center gap-3">
-        <h2 className="text-lg font-semibold">桌位</h2>
+        <h2 className="text-lg font-semibold">{t(tablesMsg.heading)}</h2>
         {tables && (
           <span className="text-sm text-slate-500">
-            {seated} / {tables.length} 桌使用中
+            {t(tablesMsg.inUse, { n: seated, total: tables.length })}
           </span>
         )}
         <span className="ml-auto" />
@@ -95,14 +101,14 @@ export default function TableMap({
             setForm(null)
           }}
         >
-          編輯桌位
+          {t(tablesMsg.editMode)}
         </button>
         {editing && (
           <button
             className="rounded bg-sky-800 px-3 py-1.5 text-sm hover:bg-sky-700"
             onClick={() => setForm({ code: '', seats: 4, areaName: null })}
           >
-            ＋ 新增
+            ＋ {t(ui.add)}
           </button>
         )}
       </div>
@@ -112,7 +118,7 @@ export default function TableMap({
           <span className="flex-1">{error}</span>
           <button
             className="shrink-0 px-1 text-red-400 hover:text-red-200"
-            title="知道了"
+            title={t(tablesMsg.dismiss)}
             onClick={() => setError(null)}
           >
             ✕
@@ -122,12 +128,12 @@ export default function TableMap({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tables === null ? (
-          <p className="py-12 text-center text-sm text-slate-600">載入中…</p>
+          <p className="py-12 text-center text-sm text-slate-600">{t(tablesMsg.loading)}</p>
         ) : tables.length === 0 ? (
           <p className="py-12 text-center text-sm text-slate-600">
-            還沒有桌位。按「編輯桌位 → 新增」建立第一桌，
+            {t(tablesMsg.empty1)}
             <br />
-            或是這家店只做外帶的話，這一頁可以完全不用。
+            {t(tablesMsg.empty2)}
           </p>
         ) : (
           areas.map(([area, list]) => (
@@ -136,29 +142,32 @@ export default function TableMap({
                 <h3 className="mb-2 text-sm text-slate-500">{area}</h3>
               )}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-2">
-                {list.map((t) => (
+                {/* 這裡的變數叫 table 不叫 t：t 已經是翻譯函式了。 */}
+                {list.map((table) => (
                   <TableCard
-                    key={t.id}
-                    table={t}
+                    key={table.id}
+                    table={table}
                     editing={editing}
                     busy={busy}
                     // 空桌要先問人數（服務費、翻桌率、報表全靠它），
                     // 已經有客人的桌直接進點餐畫面 —— 加點的時候再問一次人數
                     // 只會被隨便按掉。
-                    onOpen={() => (t.session ? onPick(t, t.session.guestCount) : setSeating(t))}
+                    onOpen={() =>
+                      table.session ? onPick(table, table.session.guestCount) : setSeating(table)
+                    }
                     onEdit={() =>
                       setForm({
-                        id: t.id,
-                        code: t.code,
-                        name: t.name ?? null,
-                        seats: t.seats,
-                        areaName: t.areaName ?? null,
-                        isActive: t.isActive,
+                        id: table.id,
+                        code: table.code,
+                        name: table.name ?? null,
+                        seats: table.seats,
+                        areaName: table.areaName ?? null,
+                        isActive: table.isActive,
                       })
                     }
                     onClear={() => {
-                      if (!confirm(`要清掉 ${t.code} 嗎？\n\n這一桌的帳必須已經結完。`)) return
-                      void run(() => tableApi.close(t.id))
+                      if (!confirm(t(tablesMsg.confirmClear, { code: table.code }))) return
+                      void run(() => tableApi.close(table.id))
                     }}
                   />
                 ))}
@@ -188,7 +197,7 @@ export default function TableMap({
           onDelete={
             form.id
               ? () => {
-                  if (!confirm(`要刪掉 ${form.code} 嗎？`)) return
+                  if (!confirm(t(tablesMsg.confirmDelete, { code: form.code }))) return
                   void run(() => tableApi.remove(form.id!)).then((ok) => {
                     if (ok) setForm(null)
                   })
@@ -206,11 +215,15 @@ export default function TableMap({
   )
 }
 
-/** 沒有區域的桌歸到「未分區」，而不是消失。 */
-function groupByArea(tables: DiningTable[]): [string, DiningTable[]][] {
+/**
+ * 沒有區域的桌歸到「未分區」，而不是消失。
+ *
+ * 那個標籤由呼叫端傳進來：這裡不是元件，拿不到 `useT()`。
+ */
+function groupByArea(tables: DiningTable[], unzoned: string): [string, DiningTable[]][] {
   const map = new Map<string, DiningTable[]>()
   for (const t of tables) {
-    const key = t.areaName ?? '未分區'
+    const key = t.areaName ?? unzoned
     const list = map.get(key)
     if (list) list.push(t)
     else map.set(key, [t])
@@ -233,6 +246,7 @@ function TableCard({
   onEdit: () => void
   onClear: () => void
 }) {
+  const t = useT()
   const s = table.session
   const mins = s ? Math.floor(s.seatedSeconds / 60) : 0
   // 顏色只表達一件事：這桌坐多久了。九十分鐘以上通常代表該去看一下 ——
@@ -255,7 +269,9 @@ function TableCard({
         <div className="flex items-baseline gap-2">
           <span className="text-xl font-semibold">{table.code}</span>
           {table.name && <span className="text-sm text-slate-400">{table.name}</span>}
-          <span className="ml-auto text-xs text-slate-600">{table.seats} 人桌</span>
+          <span className="ml-auto text-xs text-slate-600">
+            {t(tablesMsg.seats, { n: table.seats })}
+          </span>
         </div>
 
         {s ? (
@@ -264,16 +280,18 @@ function TableCard({
               <span className="text-lg font-semibold text-sky-300">
                 {formatMoney(s.total)}
               </span>
-              <span className="font-mono text-sm text-slate-400">{mins} 分</span>
+              <span className="font-mono text-sm text-slate-400">
+                {t(tablesMsg.minutes, { n: mins })}
+              </span>
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
-              {s.guestCount} 位 · {hhmm(s.openedAt)} 入座
-              {s.orderCount > 1 && ` · ${s.orderCount} 張單`}
+              {t(tablesMsg.seatedInfo, { n: s.guestCount, time: hhmm(s.openedAt) })}
+              {s.orderCount > 1 && ` · ${t(tablesMsg.orders, { n: s.orderCount })}`}
             </div>
           </div>
         ) : (
           <p className="mt-2 text-sm text-slate-600">
-            {table.isActive ? '空桌' : '停用中'}
+            {table.isActive ? t(tablesMsg.free) : t(tablesMsg.disabled)}
           </p>
         )}
       </button>
@@ -285,15 +303,15 @@ function TableCard({
             disabled={busy}
             onClick={onOpen}
           >
-            加點 / 結帳
+            {t(tablesMsg.addOrPay)}
           </button>
           <button
             className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 disabled:opacity-40"
             disabled={busy}
-            title="把這一桌清空。必須先結完帳"
+            title={t(tablesMsg.clearHint)}
             onClick={onClear}
           >
-            清桌
+            {t(tablesMsg.clear)}
           </button>
         </div>
       )}
@@ -305,7 +323,7 @@ function TableCard({
             disabled={busy}
             onClick={onEdit}
           >
-            編輯
+            {t(tablesMsg.edit)}
           </button>
         </div>
       )}
@@ -326,15 +344,18 @@ function TableForm({
   onDelete?: () => void
   onCancel: () => void
 }) {
+  const t = useT()
   const [draft, setDraft] = useState<TableInput>(value)
 
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-900 p-5">
-        <h3 className="mb-4 text-lg font-semibold">{value.id ? '編輯桌位' : '新增桌位'}</h3>
+        <h3 className="mb-4 text-lg font-semibold">
+          {value.id ? t(tablesMsg.editTitle) : t(tablesMsg.newTitle)}
+        </h3>
 
         <label className="mb-3 block">
-          <span className="mb-1 block text-sm text-slate-400">桌號</span>
+          <span className="mb-1 block text-sm text-slate-400">{t(tablesMsg.code)}</span>
           <input
             autoFocus
             className="w-full rounded bg-slate-800 px-3 py-2"
@@ -343,14 +364,14 @@ function TableForm({
             onChange={(e) => setDraft({ ...draft, code: e.target.value })}
           />
           {/* 桌號是店員用喊的，所以短。這句提示省下很多「桌號要打什麼」的猶豫。 */}
-          <span className="mt-1 block text-xs text-slate-600">店員報號用的，越短越好</span>
+          <span className="mt-1 block text-xs text-slate-600">{t(tablesMsg.codeHint)}</span>
         </label>
 
         <label className="mb-3 block">
-          <span className="mb-1 block text-sm text-slate-400">名稱（選填）</span>
+          <span className="mb-1 block text-sm text-slate-400">{t(tablesMsg.name)}</span>
           <input
             className="w-full rounded bg-slate-800 px-3 py-2"
-            placeholder="靠窗"
+            placeholder={t(tablesMsg.namePlaceholder)}
             value={draft.name ?? ''}
             onChange={(e) => setDraft({ ...draft, name: e.target.value || null })}
           />
@@ -358,7 +379,7 @@ function TableForm({
 
         <div className="mb-3 flex gap-3">
           <label className="flex-1">
-            <span className="mb-1 block text-sm text-slate-400">座位數</span>
+            <span className="mb-1 block text-sm text-slate-400">{t(tablesMsg.seatCount)}</span>
             <input
               type="number"
               min={1}
@@ -368,10 +389,10 @@ function TableForm({
             />
           </label>
           <label className="flex-1">
-            <span className="mb-1 block text-sm text-slate-400">區域（選填）</span>
+            <span className="mb-1 block text-sm text-slate-400">{t(tablesMsg.area)}</span>
             <input
               className="w-full rounded bg-slate-800 px-3 py-2"
-              placeholder="大廳"
+              placeholder={t(tablesMsg.areaPlaceholder)}
               value={draft.areaName ?? ''}
               onChange={(e) => setDraft({ ...draft, areaName: e.target.value || null })}
             />
@@ -384,7 +405,7 @@ function TableForm({
             checked={draft.isActive ?? true}
             onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
           />
-          啟用（停用的桌還會留在圖上，但不能開檯）
+          {t(tablesMsg.active)}
         </label>
 
         <div className="flex gap-2">
@@ -394,7 +415,7 @@ function TableForm({
               disabled={busy}
               onClick={onDelete}
             >
-              刪除
+              {t(ui.delete)}
             </button>
           )}
           <span className="ml-auto" />
@@ -402,14 +423,14 @@ function TableForm({
             className="rounded px-4 py-2 text-sm text-slate-400 hover:text-slate-200"
             onClick={onCancel}
           >
-            取消
+            {t(ui.cancel)}
           </button>
           <button
             className="rounded bg-sky-700 px-4 py-2 text-sm font-semibold hover:bg-sky-600 disabled:opacity-40"
             disabled={busy || !draft.code.trim()}
             onClick={() => onSave(draft)}
           >
-            儲存
+            {t(ui.save)}
           </button>
         </div>
       </div>
@@ -435,14 +456,17 @@ function SeatDialog({
   onSeat: (guests: number) => void
   onCancel: () => void
 }) {
+  const t = useT()
   const [custom, setCustom] = useState('')
   const quick = [1, 2, 3, 4, 5, 6, 8, 10]
 
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-900 p-5">
-        <h3 className="mb-1 text-lg font-semibold">{table.code} 開檯</h3>
-        <p className="mb-4 text-sm text-slate-500">幾位？</p>
+        <h3 className="mb-1 text-lg font-semibold">
+          {t(tablesMsg.openTitle, { code: table.code })}
+        </h3>
+        <p className="mb-4 text-sm text-slate-500">{t(tablesMsg.guests)}</p>
 
         <div className="grid grid-cols-4 gap-2">
           {quick.map((n) => (
@@ -465,7 +489,7 @@ function SeatDialog({
             type="number"
             min={1}
             className="w-full rounded bg-slate-800 px-3 py-2"
-            placeholder="其他人數"
+            placeholder={t(tablesMsg.otherCount)}
             value={custom}
             onChange={(e) => setCustom(e.target.value)}
             onKeyDown={(e) => {
@@ -477,7 +501,7 @@ function SeatDialog({
             disabled={!(Number(custom) > 0)}
             onClick={() => onSeat(Number(custom))}
           >
-            確定
+            {t(tablesMsg.confirm)}
           </button>
         </div>
 
@@ -485,7 +509,7 @@ function SeatDialog({
           className="mt-4 w-full rounded py-2 text-sm text-slate-400 hover:text-slate-200"
           onClick={onCancel}
         >
-          取消
+          {t(ui.cancel)}
         </button>
       </div>
     </div>
