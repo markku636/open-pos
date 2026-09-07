@@ -44,8 +44,45 @@ pub enum CjkEncoding {
     Big5,
     /// 陸製機常見（向下相容 GBK / GB2312）。
     Gb18030,
+    /// 日文機（CP932）。**日文一定要走這條。**
+    ///
+    /// 理由跟直覺不一樣。Big5 其實有平假名、片假名，連長音符 `ー` 都有
+    /// （這裡用的 `encoding_rs::BIG5` 是含 HKSCS 的 WHATWG 版），
+    /// 「ご注文ありがとうございます」「お釣り」「合計金額」全都編得出來。
+    ///
+    /// 編不出來的**全部是新字體**，而它們剛好是 POS 每天在用的字：
+    ///
+    /// | 缺 | 用在哪 |
+    /// | --- | --- |
+    /// | `円` | 每一個金額後面 |
+    /// | `内` `税` `込` `抜` | 内税 / 税込 / 税抜 —— 稅別 |
+    /// | `売` | 売上 —— 業績 |
+    /// | `当` `弁` `焼` | 弁当、焼売 —— 品名 |
+    /// | `対` `応` `国` `駅` `図` | 一般用字 |
+    ///
+    /// 所以症狀不是整排亂碼，是**偶爾一個字變成空白**：品名印得出來、
+    /// 金額後面的「円」不見了。那比整排壞掉更難被發現，因為收據看起來還是
+    /// 一張正常的收據。
+    ///
+    ShiftJis,
     /// 少數新款或改過韌體的機器。
     Utf8,
+}
+
+impl CjkEncoding {
+    /// 這個編碼的全形空白，給編不出來的字當佔位符用。
+    ///
+    /// 每種編碼都不一樣（Big5 是 A1 40、Shift_JIS 是 81 40）。借用別種編碼的
+    /// 位元組會讓印表機印出一個隨機符號，而那看起來就像「這台機器壞了」。
+    fn ideographic_space(self) -> &'static [u8] {
+        match self {
+            Self::Big5 => &[0xA1, 0x40],
+            Self::Gb18030 => &[0xA1, 0xA1],
+            Self::ShiftJis => &[0x81, 0x40],
+            // U+3000 IDEOGRAPHIC SPACE
+            Self::Utf8 => &[0xE3, 0x80, 0x80],
+        }
+    }
 }
 
 /// 編碼一段文字，回傳位元組與**編不出來的字**。
@@ -60,6 +97,7 @@ pub fn encode_text(s: &str, enc: CjkEncoding) -> (Vec<u8>, Vec<char>) {
     let encoding = match enc {
         CjkEncoding::Big5 => encoding_rs::BIG5,
         CjkEncoding::Gb18030 => encoding_rs::GB18030,
+        CjkEncoding::ShiftJis => encoding_rs::SHIFT_JIS,
         CjkEncoding::Utf8 => unreachable!(),
     };
 
@@ -74,7 +112,8 @@ pub fn encode_text(s: &str, enc: CjkEncoding) -> (Vec<u8>, Vec<char>) {
             missing.push(ch);
             // 用全形空白佔位，維持欄寬對齊 —— 印一個看不懂的符號比留白更糟，
             // 而版面歪掉會讓整張單都難讀。
-            out.extend_from_slice(&[0xA1, 0x40]);
+            // 佔位符要用**這個編碼自己的**全形空白，借別種的會印出亂碼。
+            out.extend_from_slice(enc.ideographic_space());
         } else {
             out.extend_from_slice(&bytes);
         }
@@ -281,6 +320,72 @@ impl EscPosTextRenderer {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn neither_encoding_covers_both_languages_so_the_shop_must_pick() {
+        // 這條測試釘住的是一個「不能靠猜」的事實。下面每一個字都是拿
+        // encoding_rs 實際跑出來的結果，不是照規格推的 —— 我推過兩次，兩次都錯。
+        //
+        // 直覺會說「Big5 沒有假名所以印不了日文」。錯的。Big5 有假名、有長音符，
+        // 「ご注文ありがとうございます」整句都印得出來。
+
+        for ok in [
+            "コーヒー",
+            "ラーメン",
+            "ご注文ありがとうございます",
+            "お釣り",
+            "合計金額",
+        ] {
+            let (_, missing) = encode_text(ok, CjkEncoding::Big5);
+            assert!(missing.is_empty(), "{ok} 在 Big5 應該沒問題：{missing:?}");
+        }
+
+        // Big5 真正編不出來的全是**新字體**，而那剛好是 POS 的核心詞彙：
+        // 円（每個金額後面）、内税（稅別）、売上（業績）。
+        let (bytes, missing) = encode_text("内税 500円 売上", CjkEncoding::Big5);
+        for ch in ['内', '税', '円', '売'] {
+            assert!(
+                missing.contains(&ch),
+                "{ch} 在 Big5 應該編不出來：{missing:?}"
+            );
+        }
+        assert!(
+            bytes.windows(2).any(|w| w == [0xA1, 0x40]),
+            "缺字要用 Big5 自己的全形空白 A1 40 佔位"
+        );
+
+        // 反過來也一樣不行。Shift_JIS 掉的是繁中菜單上最常見的那幾個字：
+        // 麵、奶、雞 —— 麵類、奶茶、雞腿便當。
+        let (_, missing) = encode_text("鐵板麵 珍珠奶茶 雞腿便當", CjkEncoding::ShiftJis);
+        for ch in ['麵', '奶', '雞'] {
+            assert!(
+                ch_missing(&missing, ch),
+                "{ch} 在 Shift_JIS 應該編不出來：{missing:?}"
+            );
+        }
+
+        // 而日文在 Shift_JIS 下當然全部都行。
+        let (_, missing) = encode_text("コーヒー 内税 500円 売上", CjkEncoding::ShiftJis);
+        assert!(missing.is_empty(), "Shift_JIS 應該編得出日文：{missing:?}");
+
+        // 結論：沒有一種編碼同時吃得下兩種語言。所以「機器的字庫」必須是
+        // 一個店家自己選的設定，不能由介面語言推導出來 ——
+        // 一台台灣買的 Big5 機器，就算 POS 設成日文，也印不出「円」。
+    }
+
+    fn ch_missing(missing: &[char], ch: char) -> bool {
+        missing.contains(&ch)
+    }
+
+    #[test]
+    fn each_encoding_pads_with_its_own_ideographic_space() {
+        // 借用別種編碼的全形空白，印出來是一個隨機符號 ——
+        // 看起來像機器壞了，而不像缺字。
+        assert_eq!(CjkEncoding::Big5.ideographic_space(), &[0xA1, 0x40]);
+        assert_eq!(CjkEncoding::ShiftJis.ideographic_space(), &[0x81, 0x40]);
+        assert_eq!(CjkEncoding::Gb18030.ideographic_space(), &[0xA1, 0xA1]);
+        assert_eq!(CjkEncoding::Utf8.ideographic_space(), "　".as_bytes());
+    }
     use super::*;
     use crate::receipt::{Cell, PaperWidth};
 

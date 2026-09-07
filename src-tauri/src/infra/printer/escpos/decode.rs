@@ -182,6 +182,7 @@ fn decode_text(bytes: &[u8], encoding: CjkEncoding, kanji: bool) -> String {
     let enc = match encoding {
         CjkEncoding::Big5 => encoding_rs::BIG5,
         CjkEncoding::Gb18030 => encoding_rs::GB18030,
+        CjkEncoding::ShiftJis => encoding_rs::SHIFT_JIS,
         CjkEncoding::Utf8 => unreachable!(),
     };
     enc.decode(bytes).0.into_owned()

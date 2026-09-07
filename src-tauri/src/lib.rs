@@ -19,6 +19,7 @@ pub mod core;
 pub mod ctx;
 pub mod error;
 pub mod guard;
+pub mod i18n;
 pub mod infra;
 #[cfg(feature = "server")]
 pub mod lan;
