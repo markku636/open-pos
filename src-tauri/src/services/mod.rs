@@ -17,6 +17,7 @@ pub mod demo;
 pub mod diagnostics;
 pub mod gateway;
 pub mod kds;
+pub mod locale;
 pub mod menu;
 /// 區網連線狀態。只有帶 server feature 時才有網路可言。
 #[cfg(feature = "server")]

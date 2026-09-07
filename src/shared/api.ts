@@ -7,6 +7,8 @@
  * 型別對應後端的 serde 定義（`src-tauri/src/services/app.rs`），
  * 後端統一用 camelCase 輸出，所以兩邊的欄位名一致。
  */
+import type { Locale } from '@/shared/i18n'
+
 import { transport } from "./transport";
 
 export interface AppInfo {
@@ -1236,3 +1238,12 @@ export const gatewayApi = {
     transport.call<Gateway>("upsert_gateway", { input }),
   remove: (id: string) => transport.call<void>("delete_gateway", { id }),
 };
+
+/**
+ * 介面語言。存在後端而不是瀏覽器 —— 收銀機是共用機器，
+ * 換一台電腦或重灌瀏覽器不該要重設一次，同店兩台也不該顯示不同語言。
+ */
+export const localeApi = {
+  get: () => transport.call<Locale>('get_locale'),
+  set: (locale: Locale) => transport.call<void>('set_locale', { locale }),
+}

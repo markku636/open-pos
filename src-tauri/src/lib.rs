@@ -236,6 +236,8 @@ pub fn run() {
             commands::upsert_gateway,
             commands::delete_gateway,
             commands::gateway_providers,
+            commands::get_locale,
+            commands::set_locale,
             commands::sales_history,
             commands::day_report,
             commands::closed_days,

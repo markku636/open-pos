@@ -642,3 +642,16 @@ pub async fn delete_gateway(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
 pub fn gateway_providers() -> Vec<services::gateway::config::ProviderDef> {
     services::gateway::config::providers()
 }
+
+/// 目前的介面語言。
+#[tauri::command]
+pub async fn get_locale(ctx: State<'_, Ctx>) -> AppResult<crate::i18n::Locale> {
+    services::locale::get(&ctx).await
+}
+
+/// 換介面語言。存在後端而不是瀏覽器 —— 收銀機是共用機器，
+/// 換一台電腦不該要重設一次。
+#[tauri::command]
+pub async fn set_locale(ctx: State<'_, Ctx>, locale: crate::i18n::Locale) -> AppResult<()> {
+    services::locale::set(&ctx, locale).await
+}

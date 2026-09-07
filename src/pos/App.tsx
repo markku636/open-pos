@@ -9,6 +9,8 @@ import OrderScreen, { type Seat } from './OrderScreen'
 import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
 import GatewayPanel from './GatewayPanel'
+import { LocaleProvider, LOCALE_LABELS, LOCALES, useLocale, useT, type Locale } from '@/shared/i18n'
+import { nav } from '@/shared/locales/nav'
 import SalesPanel from './SalesPanel'
 import ShiftPanel from './ShiftPanel'
 import {
@@ -19,14 +21,43 @@ import {
   type AppError,
   type AppInfo,
   type Health,
-  type PrintQueueStatus,
-} from '@/shared/api'
+  type PrintQueueStatus, localeApi} from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
 type Tab = 'order' | 'tables' | 'bills' | 'sales' | 'menu' | 'printer' | 'gateway' | 'shift' | 'backup' | 'status'
 
-/** 收銀機主畫面。 */
+/**
+ * 最外層：把語言設定讀進來，再交給 `LocaleProvider`。
+ *
+ * 拆成兩層是因為 `useT()` 必須在 Provider **底下**才拿得到語言 ——
+ * 同一個元件既提供 context 又消費它，讀到的永遠是預設值。
+ *
+ * 讀設定失敗就用繁中開下去，不擋畫面：語言讀不到是小事，
+ * 收銀機開不起來是大事。
+ */
 export default function App() {
+  const [initial, setInitial] = useState<Locale | null>(null)
+
+  useEffect(() => {
+    localeApi
+      .get()
+      .then(setInitial)
+      .catch(() => setInitial('zh-TW'))
+  }, [])
+
+  // 還沒讀到之前不要先畫一次中文再跳成日文 —— 那一下閃爍看起來像壞掉。
+  if (!initial) return <div className="h-screen bg-slate-950" />
+
+  return (
+    <LocaleProvider initial={initial} onChange={(l) => void localeApi.set(l).catch(() => {})}>
+      <Shell />
+    </LocaleProvider>
+  )
+}
+
+/** 收銀機主畫面。 */
+function Shell() {
+  const t = useT()
   const [tab, setTab] = useState<Tab>('order')
   const [about, setAbout] = useState(false)
   // 目前正在服務的那一桌。放在最上層是因為它跨兩個分頁：
@@ -62,35 +93,35 @@ export default function App() {
         <img src="/app-icon.png" alt="" className="mr-2 h-9 w-9 rounded-lg" draggable={false} />
         <span className="mr-4 text-lg font-semibold tracking-tight">{APP_NAME}</span>
         <TabButton active={tab === 'order'} onClick={() => setTab('order')}>
-          點餐
+          {t(nav.order)}
           {seat && <span className="ml-1.5 text-emerald-300">{seat.table.code}</span>}
         </TabButton>
         <TabButton active={tab === 'tables'} onClick={() => setTab('tables')}>
-          桌位
+          {t(nav.tables)}
         </TabButton>
         <TabButton active={tab === 'bills'} onClick={() => setTab('bills')}>
-          帳單退款
+          {t(nav.bills)}
         </TabButton>
         <TabButton active={tab === 'sales'} onClick={() => setTab('sales')}>
-          銷售記錄
+          {t(nav.sales)}
         </TabButton>
         <TabButton active={tab === 'menu'} onClick={() => setTab('menu')}>
-          商品維護
+          {t(nav.menu)}
         </TabButton>
         <TabButton active={tab === 'printer'} onClick={() => setTab('printer')}>
-          出單機
+          {t(nav.printer)}
         </TabButton>
         <TabButton active={tab === 'gateway'} onClick={() => setTab('gateway')}>
-          金流
+          {t(nav.gateway)}
         </TabButton>
         <TabButton active={tab === 'shift'} onClick={() => setTab('shift')}>
-          班別日結
+          {t(nav.shift)}
         </TabButton>
         <TabButton active={tab === 'backup'} onClick={() => setTab('backup')}>
-          備份
+          {t(nav.backup)}
         </TabButton>
         <TabButton active={tab === 'status'} onClick={() => setTab('status')}>
-          系統狀態
+          {t(nav.status)}
         </TabButton>
         <span className="ml-auto" />
         {queue?.needsAttention && (
@@ -103,11 +134,12 @@ export default function App() {
             {queue.detail}
           </button>
         )}
+        <LocalePicker />
         <button
           className="rounded px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200"
           onClick={() => setAbout(true)}
         >
-          關於
+          {t(nav.about)}
         </button>
       </header>
 
@@ -325,5 +357,32 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="w-20 shrink-0 text-slate-500">{label}</span>
       <span className="break-all">{value}</span>
     </div>
+  )
+}
+
+/**
+ * 語言切換器。
+ *
+ * 用 select 而不是三顆按鈕：頂欄的橫向空間要留給分頁，而語言是裝機時設一次、
+ * 之後幾乎不再碰的東西 —— 不值得長期佔著三個按鈕的寬度。
+ *
+ * 每個選項用**該語言自己的寫法**（English 不寫成「英文」），
+ * 因為會去點它的人，多半正是看不懂目前這個語言的人。
+ */
+function LocalePicker() {
+  const { locale, setLocale } = useLocale()
+  return (
+    <select
+      className="rounded bg-slate-900 px-2 py-1.5 text-sm text-slate-300 hover:text-slate-100"
+      value={locale}
+      onChange={(e) => setLocale(e.target.value as Locale)}
+      title={`${LOCALE_LABELS[locale]} · Language`}
+    >
+      {LOCALES.map((l) => (
+        <option key={l} value={l}>
+          {LOCALE_LABELS[l]}
+        </option>
+      ))}
+    </select>
   )
 }
