@@ -506,9 +506,9 @@ Design decisions are recorded in [`docs/adr/`](docs/adr/):
 
 | Version | Contents |
 | --- | --- |
-| **v1.0** | Ordering + tables + checkout (including split bills and refunds) + printing + shifts and end-of-day close + backups (feature-complete; still missing the installer and release process) |
+| **v1.0** | Ordering + tables + checkout (including split bills and refunds) + printing + shifts and end-of-day close + payment settings + backups (feature-complete; still missing the installer and release process) |
 | ~~v1.1~~ | ~~KDS kitchen display~~ (done, pulled forward into v1.0) |
-| v1.2 | Report improvements, audit search, offline KDS queue and device pairing |
+| ~~v1.2~~ | ~~Report improvements, audit search, offline KDS queue~~ (done, pulled forward into v1.0). Device pairing is still v1.3 |
 | v1.3 | Customer QR self-ordering |
 | v1.4 | Taiwan uniform e-invoice (self-hosted Turnkey) |
 | v2.0 | PostgreSQL backend |
