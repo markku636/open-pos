@@ -72,7 +72,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
-          tauriScript: npm run tauri --
+          # ★ 這裡**不能**自己補 `--`。
+          #
+          # tauri-action 會在 build 與 args 之間自己插一個 `--`。如果 tauriScript
+          # 尾巴又帶一個，最後跑的是：
+          #     npm run tauri -- build -- --target aarch64-apple-darwin
+          # npm 吃掉第一個 `--` 之後變成 `tauri build -- --target …`，
+          # 而 tauri CLI 把 `build` 後面的 `--` 解讀成「後面的都轉給 cargo」——
+          # 於是 cargo 收到了 --target（產物落在 target/<triple>/release/），
+          # 但打包器沒收到，仍然去 target/release/ 找主程式，然後：
+          #     failed to bundle project: can't open main binary … (os error 2)
+          #
+          # Windows 與 Linux 的 args 是空的，兩邊都看 target/release/ 所以剛好沒事 ——
+          # 這個 bug 只在有 --target 的 macOS 上出現，而那正是最難察覺的那種。
+          tauriScript: npm run tauri
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: 'open-pos ${{ github.ref_name }}'
