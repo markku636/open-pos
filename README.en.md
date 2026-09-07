@@ -318,6 +318,33 @@ For the details, and for what is still missing on NewebPay MPG, see **[docs/paym
 
 ---
 
+## Sales records and reports
+
+![Sales records](docs/images/sales.webp)
+
+Looking up an old sale happens every day: a customer comes back with a receipt
+from three days ago, or the owner wants to know what sold at lunch yesterday.
+So the filters are date range, channel, and the **last few digits** of the order
+number. The last few digits, because the customer only has that receipt in hand
+and nobody reads out a 26-character ID.
+
+**Search on this page does not cross days**; the date range always applies. That
+is deliberately different from the refunds page. This page carries a count and
+revenue total at the top, and a search that ignored the date range would turn
+that number into an all-time figure while the date pickers still showed today.
+The refunds page has no totals row, so searching across days is safe there.
+
+To look further back, widen the date range.
+
+"Export Excel" writes real numbers, not text. Amount columns can be summed and
+sorted directly in Excel. A report that stores money as text sorts wrongly and
+silently, because in string order `'9' > '10'`.
+
+End-of-day reports live on their own page (Shifts -> Daily report) and show the
+snapshot computed at close, never a recomputation.
+
+---
+
 ## Shifts and end-of-day close
 
 The day runs **open shift → trade → close shift (count the drawer) → end-of-day close (日結)**.
