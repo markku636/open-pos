@@ -162,6 +162,13 @@ pub struct OrderView {
     pub billed_total: i64,
     /// 已經結了幾份。
     pub bill_count: i64,
+    /// 每人低消還差多少。0 = 沒設低消、不是內用、或已經達到。
+    ///
+    /// **它只是提醒，系統不會自動補一行差額。** 查過的市售產品幾乎都是這樣做的：
+    /// 差額該不該收、收多少、要不要通融，是店長當下的判斷，不是軟體的。
+    /// 自動補一行的後果是客人在收據上看到一筆他沒點過的東西，
+    /// 而收銀員解釋不出來那是什麼。
+    pub min_charge_shortfall: i64,
     /// 這張單用哪一種分法（even / by_item / by_amount）。還沒分過是 None。
     pub split_mode: Option<String>,
     /// 平分時說好要分幾份。畫面要靠它把份數鎖住 —— 讓收銀員重選一次再被
@@ -1868,18 +1875,40 @@ async fn load_order_view(uow: &mut SqliteUow, id: &str) -> AppResult<OrderView> 
     .fetch_one(uow.conn())
     .await?;
 
+    // 每人低消。單獨查一次而不是塞進上面那條 JOIN —— `stores` 只有一列，
+    // 而把設定混進訂單查詢會讓「這個欄位到底屬於誰」變得看不出來。
+    let min_per_head: i64 =
+        sqlx::query_scalar("SELECT min_charge_per_head FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1")
+            .fetch_optional(uow.conn())
+            .await?
+            .unwrap_or(0);
+    let channel: String = r.get("channel");
+    let guests: i64 = r.get("guest_count");
+    let subtotal: i64 = r.get("subtotal");
+    // 低消看的是**點了多少東西**（subtotal），不是最後收多少：
+    // 服務費是店家加的、抹零是店家讓的，兩者都不該算進客人的消費額。
+    // 而低消是桌位政策，外帶外送沒有這回事。
+    let min_charge_shortfall = if channel == channel_str(Channel::DineIn)
+        && min_per_head > 0
+        && guests > 0
+    {
+        (min_per_head * guests - subtotal).max(0)
+    } else {
+        0
+    };
+
     Ok(OrderView {
         id: r.get("id"),
         order_no: r.get("order_no"),
         status: r.get("status"),
         rev: r.get("rev"),
-        channel: r.get("channel"),
+        channel,
         table_id: r.get("table_id"),
         table_label: r.get("table_code"),
-        guest_count: r.get("guest_count"),
+        guest_count: guests,
         business_date: r.get("business_date"),
         lines,
-        subtotal: r.get("subtotal"),
+        subtotal,
         service_charge: r.get("service_charge"),
         rounding_adjustment: r.get("rounding_adjustment"),
         grand_total: r.get("grand_total"),
@@ -1887,6 +1916,7 @@ async fn load_order_view(uow: &mut SqliteUow, id: &str) -> AppResult<OrderView> 
         tax_amount: r.get("tax_amount"),
         paid_total: r.get("paid_total"),
         change_total: r.get("change_total"),
+        min_charge_shortfall,
         billed_total: bills.get("billed"),
         bill_count: bills.get("n"),
         split_mode: bills.get("mode"),

@@ -34,5 +34,6 @@ pub mod sales;
 pub mod seed;
 pub mod sequence;
 pub mod shift;
+pub mod store;
 pub mod table;
 pub mod xlsx;

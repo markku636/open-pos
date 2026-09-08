@@ -10,6 +10,7 @@ import TableMap from './TableMap'
 import PrinterSettings from './PrinterSettings'
 import GatewayPanel from './GatewayPanel'
 import DiningPlanPanel from './DiningPlanPanel'
+import StorePanel from './StorePanel'
 import { LocaleProvider, LOCALE_LABELS, LOCALES, useLocale, useT, type Locale, type Msg } from '@/shared/i18n'
 import { nav, ui } from '@/shared/locales/nav'
 import { statusbar } from '@/shared/locales/statusbar'
@@ -26,7 +27,19 @@ import {
   type PrintQueueStatus, localeApi} from '@/shared/api'
 import { APP_NAME } from '@/shared/brand'
 
-type Tab = 'order' | 'tables' | 'bills' | 'sales' | 'menu' | 'printer' | 'gateway' | 'plan' | 'shift' | 'backup' | 'status'
+type Tab =
+  | 'order'
+  | 'tables'
+  | 'bills'
+  | 'sales'
+  | 'menu'
+  | 'printer'
+  | 'gateway'
+  | 'plan'
+  | 'store'
+  | 'shift'
+  | 'backup'
+  | 'status'
 
 /**
  * 最外層：把語言設定讀進來，再交給 `LocaleProvider`。
@@ -119,6 +132,9 @@ function Shell() {
         <TabButton active={tab === 'plan'} onClick={() => setTab('plan')}>
           {t(nav.plan)}
         </TabButton>
+        <TabButton active={tab === 'store'} onClick={() => setTab('store')}>
+          {t(nav.store)}
+        </TabButton>
         <TabButton active={tab === 'shift'} onClick={() => setTab('shift')}>
           {t(nav.shift)}
         </TabButton>
@@ -168,6 +184,7 @@ function Shell() {
         {tab === 'printer' && <PrinterSettings />}
         {tab === 'gateway' && <GatewayPanel />}
         {tab === 'plan' && <DiningPlanPanel />}
+        {tab === 'store' && <StorePanel />}
         {tab === 'shift' && <ShiftPanel />}
         {tab === 'backup' && <BackupPanel />}
         {tab === 'status' && <StatusPanel info={info} error={infoError} />}

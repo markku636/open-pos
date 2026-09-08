@@ -396,6 +396,19 @@ export default function OrderScreen({
               })}
             </p>
 
+            {/* 低消沒到要在**按下結帳之前**看見 —— 結完帳才發現就只剩兩條路：
+                跟客人重開一次，或是店家自己吞。所以它放在結帳鈕正上方。
+                而它不擋結帳：要不要通融是店長的判斷，不是軟體的。 */}
+            {order.minChargeShortfall > 0 && (
+              <p className="mt-2 rounded bg-amber-950/40 px-2 py-1.5 text-center text-sm text-amber-300">
+                {t(msg.minChargeShort, {
+                  amount: formatMoney(order.minChargeShortfall),
+                  n: order.guestCount,
+                  need: formatMoney(order.subtotal + order.minChargeShortfall),
+                })}
+              </p>
+            )}
+
             {/* 分帳收到一半的單長得跟一般的單一模一樣 —— 除非把它寫出來。 */}
             {order.billedTotal > 0 && order.billedTotal < order.grandTotal && (
               <p className="mt-2 rounded bg-amber-950/40 px-2 py-1.5 text-center text-sm text-amber-300">

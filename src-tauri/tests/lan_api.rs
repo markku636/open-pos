@@ -120,6 +120,9 @@ async fn admin_commands_are_not_exposed_on_the_lan() {
         "shift_close",
         "printer_settings",
         "settings_store",
+        // 店家設定會動到稅率與服務費 —— 那是整套系統裡最不該從區網碰到的東西。
+        "get_store",
+        "update_store",
     ] {
         let app = open_pos::lan::router::build(c.clone());
         let res = app

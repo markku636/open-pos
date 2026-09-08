@@ -236,6 +236,8 @@ pub fn run() {
             commands::upsert_gateway,
             commands::delete_gateway,
             commands::gateway_providers,
+            commands::get_store,
+            commands::update_store,
             commands::list_dining_plans,
             commands::upsert_dining_plan,
             commands::delete_dining_plan,

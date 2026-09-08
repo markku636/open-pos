@@ -111,6 +111,22 @@ export const order = {
   },
   short: { 'zh-TW': '還差 {amount}', en: '{amount} left', ja: '残り {amount}' },
 
+  /**
+   * 每人低消未達的提醒。
+   *
+   * 三件事刻意寫在同一句裡：**差多少**（店員要講給客人聽的數字）、
+   * **怎麼算出來的**（`4 人共需 600`，因為客人一定會問）、以及
+   * 「還是可以結」這個隱含訊息 —— 所以它是一段黃字，不是一個擋住結帳的對話框。
+   *
+   * 查過的市售產品沒有一套會因為低消沒到就不讓你結帳：那個決定是店長的，
+   * 不是軟體的。軟體要做的是讓收銀員在按下結帳之前就看見。
+   */
+  minChargeShort: {
+    'zh-TW': '未達低消，還差 {amount}（{n} 人共需 {need}）',
+    en: 'Below minimum spend by {amount} — {n} guests need {need}',
+    ja: '最低消費に {amount} 不足（{n} 名で {need} 必要）',
+  },
+
   // ── 購物車按鈕 ──
   discountOrder: { 'zh-TW': '整單折扣', en: 'Discount', ja: '全体値引き' },
   voidOrderTitle: {

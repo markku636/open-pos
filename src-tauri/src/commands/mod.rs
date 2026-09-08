@@ -635,6 +635,20 @@ pub async fn delete_gateway(ctx: State<'_, Ctx>, id: String) -> AppResult<()> {
     services::gateway::config::delete(&ctx, id).await
 }
 
+/// 店家設定（店名、統編、稅率、服務費、抹零、營業日切點、低消）。
+#[tauri::command]
+pub async fn get_store(ctx: State<'_, Ctx>) -> AppResult<services::store::StoreView> {
+    services::store::get(&ctx).await
+}
+
+#[tauri::command]
+pub async fn update_store(
+    ctx: State<'_, Ctx>,
+    input: services::store::StoreInput,
+) -> AppResult<services::store::StoreView> {
+    services::store::update(&ctx, input).await
+}
+
 /// 吃到飽 / 無限暢飲方案。
 #[tauri::command]
 pub async fn list_dining_plans(

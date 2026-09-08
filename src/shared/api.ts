@@ -263,6 +263,12 @@ export interface Order {
   /** 已經結了幾份。 */
   billCount: number;
   /** even / by_item / by_amount。還沒分過是 null。 */
+  /**
+   * 每人低消還差多少。0 = 沒設低消、不是內用、或已經達到。
+   *
+   * **只是提醒，系統不會自動補一行差額。** 差額該不該收是店長當下的判斷。
+   */
+  minChargeShortfall: number;
   splitMode: string | null;
   /** 平分時說好要分幾份。 */
   splitCount: number | null;
@@ -1337,4 +1343,49 @@ export const diningApi = {
    */
   applyToSession: (sessionId: string, planId: string | null) =>
     transport.call<void>('apply_dining_plan', { sessionId, planId }),
+}
+
+/**
+ * 店家設定。
+ *
+ * 在這之前 stores 只由 seed 建立、之後不能改 —— 而台灣餐廳的 10% 服務費
+ * 是每一家都要自己決定的東西，統編沒填收據上印不出來，營業日切點不對
+ * 日結會把凌晨的單算到隔天。
+ */
+export interface Store {
+  id: string
+  code: string
+  name: string
+  /** 統一編號。收據要印，開發票更要。 */
+  taxId: string | null
+  address: string | null
+  phone: string | null
+  tz: string
+  /** 營業日切點（`05:00`）。凌晨兩點的單算前一天。 */
+  businessDayCutoff: string
+  currency: string
+  /** basis point。台灣 5% = 500。 */
+  taxRateBp: number
+  /** 內用服務費率（basis point）。10% = 1000。外帶不收。 */
+  serviceChargeRateBp: number
+  roundingPolicy: 'none' | 'to_five' | 'floor_five' | 'floor_ten'
+  /** 每人低消。**只用來提醒，不會自動補一行差額。** */
+  minChargePerHead: number
+}
+
+export interface StoreInput {
+  name: string
+  taxId?: string | null
+  address?: string | null
+  phone?: string | null
+  businessDayCutoff: string
+  taxRateBp: number
+  serviceChargeRateBp: number
+  roundingPolicy: string
+  minChargePerHead: number
+}
+
+export const storeApi = {
+  get: () => transport.call<Store>('get_store'),
+  update: (input: StoreInput) => transport.call<Store>('update_store', { input }),
 }
