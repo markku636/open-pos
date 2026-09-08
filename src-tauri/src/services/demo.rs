@@ -162,7 +162,12 @@ const DEMO_TABLES: [&str; 6] = ["A1", "A2", "A3", "A4", "B1", "B2"];
 /// 給啟動訊息用。**不要在別處手寫這兩個數字** —— 訊息與實際內容一旦對不上，
 /// 使用者就會開始懷疑其他訊息是不是也在唬爛。
 pub fn demo_menu_size() -> (usize, usize) {
-    (MENU.len(), MENU.iter().map(|c| c.items.len()).sum())
+    // +1 是吃到飽方案的代表商品（seed_demo_plan 另外建的，不在 MENU 表裡）。
+    // 這個數字會顯示在畫面上，說 38 卻建了 39 個會讓人以為有東西沒進去。
+    (
+        MENU.len(),
+        MENU.iter().map(|c| c.items.len()).sum::<usize>() + 1,
+    )
 }
 
 /// 種示範資料的結果。
@@ -303,5 +308,67 @@ pub async fn seed_demo_menu(ctx: &Ctx) -> AppResult<bool> {
             }
         }
     }
+
+    seed_demo_plan(ctx).await?;
     Ok(true)
+}
+
+/// 一個現成的吃到飽方案。
+///
+/// # 為什麼示範資料要包含它
+///
+/// 吃到飽是這套 POS 最不直覺的一個設計 ——「方案本身就是一個商品，人頭費就是
+/// 那個商品點 N 份」這句話要講才懂。而**一個按得動的例子勝過一段說明**：
+/// 打開「吃到飽」那一頁就看得到它長什麼樣、成員怎麼選、時限寫在哪裡。
+///
+/// 建不起來不算錯（例如店家已經自己建過同名商品），示範資料的失敗
+/// 不應該讓「載入示範菜單」整個失敗。
+async fn seed_demo_plan(ctx: &Ctx) -> AppResult<()> {
+    let tree = menu::menu_tree(ctx).await?;
+    let Some(drinks) = tree.categories.iter().find(|c| c.category.name == "飲料") else {
+        return Ok(());
+    };
+    let Some(mains) = tree.categories.iter().find(|c| c.category.name == "主餐") else {
+        return Ok(());
+    };
+
+    // 方案的代表商品。599 一位 —— 這一個商品就是人頭費。
+    let plan_item = menu::upsert_item(
+        ctx,
+        ItemInput {
+            id: None,
+            category_id: Some(mains.category.id.clone()),
+            name: "晚餐吃到飽".to_string(),
+            short_name: None,
+            base_price: 599,
+            tax_code: None,
+            is_open_price: None,
+            sold_out_until: None,
+            // 排最前面 —— 吃到飽的店，店員第一個要點的就是它。
+            sort_order: Some(-10),
+            is_active: Some(true),
+        },
+    )
+    .await?;
+
+    crate::services::dining::upsert(
+        ctx,
+        crate::services::dining::PlanInput {
+            id: None,
+            item_id: plan_item.id,
+            name: "晚餐吃到飽".to_string(),
+            // 兩小時，剩三十分鐘先提醒 —— スマレジ 的『事前通知』就是這個用法。
+            limit_minutes: Some(120),
+            notice_minutes: Some(30),
+            print_members_on_bill: Some(false),
+            is_active: Some(true),
+            member_items: vec![],
+            // 整個飲料分類無限暢飲。用分類而不是逐項勾，
+            // 因為之後新增一款飲料不該還要記得回來加。
+            member_categories: vec![drinks.category.id.clone()],
+        },
+    )
+    .await?;
+
+    Ok(())
 }

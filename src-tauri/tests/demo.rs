@@ -68,7 +68,14 @@ async fn a_fresh_install_gets_a_menu_you_can_actually_click() {
     let tree = menu::menu_tree(&e.ctx).await.unwrap();
 
     assert_eq!(tree.categories.len(), 4, "分類數不對");
-    assert_eq!(total_items(&tree), 38, "品項數不對");
+    // 用 demo_menu_size() 而不是寫死數字：畫面上顯示的就是這個函式的回傳值，
+    // 兩邊對不上的症狀是「說建了 38 個、實際 39 個」，而那正是要防的。
+    let (_, expected_items) = demo::demo_menu_size();
+    assert_eq!(
+        total_items(&tree),
+        expected_items,
+        "品項數與 demo_menu_size() 對不上"
+    );
     // 未分類必須是空的 —— 示範資料自己都放不進分類的話，
     // 使用者第一眼看到的就是一個「未分類」按鈕，那是最糟的第一印象。
     assert!(tree.uncategorized.is_empty());
