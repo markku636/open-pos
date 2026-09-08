@@ -723,3 +723,103 @@ async fn a_void_ticket_names_the_cancelled_item() {
 
     e.ctx.db.close().await;
 }
+
+/// ★ 連點三下 → 紙上只印一行 ×3。
+///
+/// 收銀員在尖峰時間是連點的，不是去改數量欄位。沒有這一條，四個人的吃到飽
+/// 會在收據上變成四行一模一樣的字，客人數不清楚自己被算了幾份。
+/// Clover 的「Group identical items into one line」預設就是開的。
+///
+/// 合併只發生在**版型層**：`order_items` 那邊還是三行，
+/// 因為那是「誰在幾點點了什麼」的真相，也是分項分帳挑得動單一品項的前提。
+#[tokio::test]
+async fn tapping_the_same_item_three_times_prints_one_line_times_three() {
+    let e = env("collapse").await;
+    demo::seed_demo_menu(&e.ctx).await.unwrap();
+    e.file_printer("櫃檯").await;
+
+    let tree = menu::menu_tree(&e.ctx).await.unwrap();
+    let tea = tree
+        .categories
+        .iter()
+        .flat_map(|c| c.items.iter())
+        .find(|i| i.name == "古早味紅茶")
+        .expect("示範菜單裡應該有古早味紅茶")
+        .clone();
+
+    let o = order::open_order(
+        &e.ctx,
+        order::OpenOrderReq {
+            channel: Channel::Takeout,
+            table_id: None,
+            guest_count: None,
+            client_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    // 一次送三行 —— 這正是「連點三下再送出」在 API 上的樣子。
+    let o = order::add_lines(
+        &e.ctx,
+        order::AddLinesReq {
+            order_id: o.id.clone(),
+            expected_rev: o.rev,
+            lines: (0..3)
+                .map(|_| order::NewLine {
+                    item_id: tea.id.clone(),
+                    variant_id: None,
+                    modifier_ids: vec![],
+                    qty_milli: None,
+                    note: None,
+                })
+                .collect(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(o.lines.len(), 3, "資料庫那邊仍然是三行，合併只在紙上");
+
+    order::settle(
+        &e.ctx,
+        order::SettleReq {
+            order_id: o.id.clone(),
+            expected_rev: o.rev,
+            payments: vec![order::PaymentReq {
+                method_code: "cash".into(),
+                amount: o.grand_total,
+                tendered: Some(o.grand_total),
+                ref_no: None,
+            }],
+            idem_key: "collapse-1".into(),
+            split: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    print_worker::tick(&e.ctx).await.unwrap();
+    let out = e.printed("櫃檯");
+    // [0] 是廚房單、[1] 是收據。兩張都該只有一行紅茶。
+    for paper in &out {
+        let n = paper.lines().filter(|l| l.contains("古早味紅茶")).count();
+        assert_eq!(n, 1, "同一張單上不該印三行一樣的字：\n{paper}");
+    }
+
+    // 靠內容認收據，不靠順序 —— 廚房單不印金額，挑錯了斷言就失去意義。
+    let receipt = out
+        .iter()
+        .find(|p| p.contains("小計"))
+        .expect("應該有一張印著小計的收據");
+    let item_line = receipt
+        .lines()
+        .find(|l| l.contains("古早味紅茶"))
+        .expect("收據上找不到品項行");
+    assert!(item_line.contains('3'), "數量應該合併成 3：{item_line}");
+    // ★ 金額也要合併：30 × 3 = 90。各行加總對不上總計的收據，客人會當場抓到。
+    assert!(
+        item_line.contains("90"),
+        "金額應該是合併後的 90：{item_line}"
+    );
+
+    e.ctx.db.close().await;
+}

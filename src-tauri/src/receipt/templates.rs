@@ -103,6 +103,44 @@ pub struct SplitLabel {
     pub remaining: i64,
 }
 
+/// 把一模一樣的行合併成一行。
+///
+/// # 為什麼
+///
+/// 收銀員在尖峰時間是**連點四下**，不是去改數量欄位。於是四個人的吃到飽會變成
+/// 四行一模一樣的「晚餐吃到飽（大人）」，收據長一倍、客人數不清楚自己被算了幾份。
+/// Clover 的「Group identical items into one line」預設就是開的，
+/// 我們照做（見 `docs/dining-modes.md` 第七節）。
+///
+/// # 只在版型層做，不動 `order_items`
+///
+/// 資料庫那邊四行就是四行 —— 那是「誰在幾點點了什麼」的真相，
+/// 也是分項分帳挑得動單一品項的前提。合併是**列印時的呈現**，
+/// 不是資料的改寫。Clover 把它做成一個列印選項，理由應該也是同一個。
+///
+/// # 合併的條件嚴格到幾乎吹毛求疵
+///
+/// 品名、選項、備註三者**全部**相同才合併。差一個字都不併：
+/// 「珍奶（去冰）」與「珍奶（正常冰）」是兩杯不同的飲料，
+/// 而「不要香菜」是廚房會出事的那一行。寧可多印一行，不可併錯。
+fn collapse(lines: &[TicketLine]) -> Vec<TicketLine> {
+    let mut out: Vec<TicketLine> = Vec::with_capacity(lines.len());
+    for l in lines {
+        // 線性搜尋而不是 HashMap：一張單撐死幾十行，而**保留第一次出現的順序**
+        // 才是這裡真正要的 —— 廚師是照著單子由上往下做的。
+        if let Some(prev) = out
+            .iter_mut()
+            .find(|p| p.name == l.name && p.options == l.options && p.note == l.note)
+        {
+            prev.qty_milli += l.qty_milli;
+            prev.amount += l.amount;
+        } else {
+            out.push(l.clone());
+        }
+    }
+    out
+}
+
 fn qty_label(qty_milli: i64) -> String {
     if qty_milli % 1000 == 0 {
         (qty_milli / 1000).to_string()
@@ -144,7 +182,7 @@ pub fn kitchen_ticket(data: &TicketData, paper: PaperWidth) -> ReceiptDoc {
         doc = doc.styled(station, TextStyle::bold());
     }
 
-    for l in &data.lines {
+    for l in &collapse(&data.lines) {
         // 數量放前面：廚師先看幾份，再看是什麼。
         doc = doc.columns(
             vec![
@@ -209,7 +247,7 @@ pub fn customer_receipt(data: &TicketData, paper: PaperWidth) -> ReceiptDoc {
 
     doc = doc.rule();
 
-    for l in &data.lines {
+    for l in &collapse(&data.lines) {
         doc = doc.columns(
             vec![
                 Cell::left(&l.name),
@@ -586,5 +624,95 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod collapse_tests {
+    use super::*;
+
+    fn line(name: &str, options: &[&str], note: Option<&str>, qty: i64, amount: i64) -> TicketLine {
+        TicketLine {
+            name: name.into(),
+            options: options.iter().map(|s| (*s).to_string()).collect(),
+            note: note.map(str::to_string),
+            qty_milli: qty,
+            amount,
+        }
+    }
+
+    /// 收銀員連點四下 → 收據上只印一行 ×4。
+    #[test]
+    fn identical_lines_become_one_line_with_the_quantities_added_up() {
+        let out = collapse(&[
+            line("晚餐吃到飽", &[], None, 1000, 599),
+            line("晚餐吃到飽", &[], None, 1000, 599),
+            line("晚餐吃到飽", &[], None, 1000, 599),
+            line("晚餐吃到飽", &[], None, 1000, 599),
+        ]);
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].qty_milli, 4000);
+        assert_eq!(out[0].amount, 2396, "金額也要加總，否則收據對不上總計");
+    }
+
+    /// ★ 合併之後金額總和必須不變。
+    ///
+    /// 這是這支函式唯一絕對不能破的性質：收據上各行加總要等於總計，
+    /// 而總計是另外算出來的。差一元的收據會被客人當場抓到。
+    #[test]
+    fn collapsing_never_changes_the_total() {
+        let lines = vec![
+            line("珍珠奶茶", &["去冰"], None, 1000, 66),
+            line("滷肉飯", &[], Some("不要香菜"), 2000, 110),
+            line("珍珠奶茶", &["去冰"], None, 1000, 66),
+            line("滷肉飯", &[], None, 1000, 55),
+        ];
+        let before: i64 = lines.iter().map(|l| l.amount).sum();
+        let out = collapse(&lines);
+        assert_eq!(out.iter().map(|l| l.amount).sum::<i64>(), before);
+        assert_eq!(
+            out.iter().map(|l| l.qty_milli).sum::<i64>(),
+            lines.iter().map(|l| l.qty_milli).sum::<i64>()
+        );
+    }
+
+    /// 選項或備註不一樣就**不併**。
+    ///
+    /// 「去冰」與「正常冰」是兩杯不同的飲料；「不要香菜」是廚房會出事的那一行。
+    /// 寧可多印一行，不可併錯。
+    #[test]
+    fn a_different_option_or_note_keeps_the_lines_apart() {
+        let out = collapse(&[
+            line("珍珠奶茶", &["去冰"], None, 1000, 60),
+            line("珍珠奶茶", &["正常冰"], None, 1000, 60),
+            line("珍珠奶茶", &["去冰"], Some("走路喝"), 1000, 60),
+            line("珍珠奶茶", &["去冰"], None, 1000, 60),
+        ]);
+
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].options, vec!["去冰".to_string()]);
+        assert_eq!(out[0].qty_milli, 2000, "第一與第四行才是同一杯");
+        assert_eq!(out[1].options, vec!["正常冰".to_string()]);
+        assert_eq!(out[2].note.as_deref(), Some("走路喝"));
+    }
+
+    /// 順序照第一次出現的位置，不重排。廚師是照著單子由上往下做的。
+    #[test]
+    fn the_order_of_first_appearance_is_kept() {
+        let out = collapse(&[
+            line("滷肉飯", &[], None, 1000, 55),
+            line("珍珠奶茶", &[], None, 1000, 60),
+            line("滷肉飯", &[], None, 1000, 55),
+        ]);
+        assert_eq!(
+            out.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(),
+            vec!["滷肉飯", "珍珠奶茶"]
+        );
+    }
+
+    #[test]
+    fn an_empty_ticket_stays_empty() {
+        assert!(collapse(&[]).is_empty());
     }
 }
