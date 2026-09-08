@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { storeApi, type AppError, type Store, type StoreInput } from '@/shared/api'
+import {
+  menuApi,
+  storeApi,
+  type AppError,
+  type Item,
+  type Store,
+  type StoreInput,
+} from '@/shared/api'
 import { useT } from '@/shared/i18n'
 import { ui } from '@/shared/locales/nav'
 import { store as ts } from '@/shared/locales/store'
@@ -21,6 +28,9 @@ import { Emphasis } from '@/shared/ui/Emphasis'
 export default function StorePanel() {
   const t = useT()
   const [s, setS] = useState<Store | null>(null)
+  // 開桌費要從菜單裡挑一個商品，所以這一頁需要菜單。抓不到就讓下拉選單
+  // 只剩「不收」——菜單讀不到不該讓整個設定頁打不開。
+  const [items, setItems] = useState<Item[]>([])
   const [form, setForm] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -40,6 +50,7 @@ export default function StorePanel() {
         service: String(v.serviceChargeRateBp / 100),
         rounding: v.roundingPolicy,
         minCharge: String(v.minChargePerHead),
+        cover: v.coverChargeItemId ?? '',
       })
       setError(null)
     } catch (e) {
@@ -49,6 +60,12 @@ export default function StorePanel() {
 
   useEffect(() => {
     void load()
+    menuApi
+      .tree()
+      .then((t) =>
+        setItems([...t.categories.flatMap((c) => c.items), ...t.uncategorized]),
+      )
+      .catch(() => setItems([]))
   }, [load])
 
   const set = (k: string, v: string) => {
@@ -71,6 +88,8 @@ export default function StorePanel() {
         serviceChargeRateBp: Math.round(Number(form.service || 0) * 100),
         roundingPolicy: form.rounding ?? 'none',
         minChargePerHead: Math.round(Number(form.minCharge || 0)),
+        // 空字串 = 不收。HTML 的 select 沒有 null，後端把空字串當成 None。
+        coverChargeItemId: form.cover || null,
       }
       setS(await storeApi.update(input))
       setSaved(true)
@@ -162,6 +181,29 @@ export default function StorePanel() {
               onChange={(v) => set('minCharge', v)}
               numeric
             />
+            <label className="block md:col-span-2">
+              <span className="mb-1 block text-xs text-slate-500">{t(ts.coverCharge)}</span>
+              <select
+                className="w-full rounded bg-slate-800 px-3 py-2 text-sm"
+                value={form.cover ?? ''}
+                onChange={(e) => set('cover', e.target.value)}
+              >
+                <option value="">{t(ts.coverChargeNone)}</option>
+                {items.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}　${i.basePrice}
+                  </option>
+                ))}
+              </select>
+              {/* 設定的商品已經下架時要說出來 —— 否則畫面看起來一切正常，
+                  而開檯時默默不收錢，兩件事之間隔著好幾個小時。 */}
+              {form.cover && !items.some((i) => i.id === form.cover) && (
+                <p className="mt-1 text-xs text-amber-300">{t(ts.coverChargeMissing)}</p>
+              )}
+              <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                <Emphasis text={t(ts.coverChargeHint)} />
+              </p>
+            </label>
           </div>
         </Box>
       </div>

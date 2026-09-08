@@ -8,8 +8,8 @@ import type { Catalog } from '@/shared/i18n'
  * 1. **把 basis point 翻譯成人話。** 老闆想的是「收 10% 服務費」，
  *    不是「1000 個 basis point」。所以輸入框收的是百分比，
  *    換算藏在程式裡。
- * 2. **講清楚改了會影響誰。** 稅率與服務費**只影響之後開的單** ——
- *    這句話一定要寫出來，否則老闆會以為改了之後今天的報表會跟著變，
+ * 2. **講清楚改了會影響誰。** 已經結帳的單不會變、還開著的單會重算 ——
+ *    這兩件事要分開講，否則老闆會以為改了之後今天的報表會跟著變，
  *    然後在月底發現數字對不上時以為是系統壞了。
  */
 export const store = {
@@ -78,5 +78,26 @@ export const store = {
     'zh-TW': '結帳時如果沒達到會提醒，但**不會自動補一行差額** —— 查過的市售產品幾乎都是這樣做的。0 = 沒有低消。',
     en: 'Warns at checkout when the bill falls short, but never adds a top-up line: that is how nearly every product surveyed does it. 0 means no minimum.',
     ja: '会計時に金額が不足していれば警告しますが、差額の行を自動で追加することはありません。調査したほぼすべての製品がこの方式です。0 は最低消費なしです。',
+  },
+
+  /**
+   * 開桌費 / お通し / テーブルチャージ。
+   *
+   * 文案要回答老闆的兩個問題：**收多少**（那是商品的售價，不在這裡設）
+   * 與**什麼時候收**（開檯一次，加點不再收）。第二個問題不寫出來，
+   * 第一通客服電話就會是「為什麼同一桌收了兩次開桌費」——
+   * 而答案其實是「沒有」，只是他沒辦法從畫面上確認。
+   */
+  coverCharge: { 'zh-TW': '開桌費', en: 'Cover charge', ja: 'お通し / 席料' },
+  coverChargeNone: { 'zh-TW': '不收開桌費', en: 'None', ja: '徴収しない' },
+  coverChargeHint: {
+    'zh-TW': '選一個商品，開檯時自動點上「人數」份。**同一桌加點不會再收一次。** 金額是那個商品的售價 —— 在商品維護改，這裡不用動。',
+    en: 'Pick a menu item; it is added once per guest when the table is seated. **Adding more items to the same table never charges it again.** The amount is that item’s price, so change it in Menu, not here.',
+    ja: '商品を一つ選ぶと、着席時に「人数」分だけ自動で登録されます。**同じ卓に追加注文しても、二重には徴収されません。** 金額はその商品の価格です（変更は商品管理から）。',
+  },
+  coverChargeMissing: {
+    'zh-TW': '目前設定的開桌費商品已經下架了，開檯時不會收 —— 請重新選一個，或改成「不收開桌費」。',
+    en: 'The item set as the cover charge is no longer on sale, so nothing is charged at seating. Pick another, or set it to None.',
+    ja: '設定中のお通し商品は現在販売停止のため、着席時に徴収されません。別の商品を選ぶか、「徴収しない」にしてください。',
   },
 } satisfies Catalog

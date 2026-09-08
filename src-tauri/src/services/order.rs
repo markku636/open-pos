@@ -197,11 +197,17 @@ struct StoreConfig {
     service_charge_rate_bp: i64,
     rounding: RoundingPolicy,
     day: BusinessDayConfig,
+    /// 開桌費 / お通し 的商品。沒設就是 None。
+    ///
+    /// 只存商品，不存金額 —— 金額是那個商品的售價，而它已經有規格、
+    /// 平日假日價、稅別、廚房分區一整套。再存一份就是在等兩邊哪天不一樣。
+    cover_charge_item_id: Option<String>,
 }
 
 async fn load_store(ctx: &Ctx) -> AppResult<StoreConfig> {
     let r = sqlx::query(
-        "SELECT id, name, tax_rate_bp, service_charge_rate_bp, rounding_policy, tz, business_day_cutoff
+        "SELECT id, name, tax_rate_bp, service_charge_rate_bp, rounding_policy, tz,
+                business_day_cutoff, cover_charge_item_id
            FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1",
     )
     .fetch_optional(ctx.db.reader())
@@ -223,6 +229,7 @@ async fn load_store(ctx: &Ctx) -> AppResult<StoreConfig> {
             "floor_ten" => RoundingPolicy::FloorTen,
             _ => RoundingPolicy::None,
         },
+        cover_charge_item_id: r.get("cover_charge_item_id"),
         day: BusinessDayConfig {
             tz: tz.parse().unwrap_or(chrono_tz::Asia::Taipei),
             cutoff: cutoff
@@ -275,11 +282,16 @@ pub async fn open_order(ctx: &Ctx, req: OpenOrderReq) -> AppResult<OrderView> {
     .await?;
 
     let order_id = Id::new().to_string();
-    let table_session_id = match (&req.table_id, req.channel) {
-        (Some(table_id), Channel::DineIn) => Some(
-            open_table_session(&mut uow, ctx, table_id, &store, &business_date, &req, &now).await?,
-        ),
-        _ => None,
+    // `seated` 是「這一桌是**這一次**才開的」。同一桌加點時它是 false ——
+    // 開桌費只在真正開檯時收一次，第二張單再收一次會變成客訴。
+    let (table_session_id, seated) = match (&req.table_id, req.channel) {
+        (Some(table_id), Channel::DineIn) => {
+            let (id, fresh) =
+                open_table_session(&mut uow, ctx, table_id, &store, &business_date, &req, &now)
+                    .await?;
+            (Some(id), fresh)
+        }
+        _ => (None, false),
     };
 
     sqlx::query(
@@ -313,9 +325,76 @@ pub async fn open_order(ctx: &Ctx, req: OpenOrderReq) -> AppResult<OrderView> {
         &now,
     )
     .await?;
+
+    if seated {
+        add_cover_charge(
+            &mut uow,
+            &order_id,
+            &store,
+            req.guest_count.unwrap_or(1),
+            &now,
+        )
+        .await?;
+    }
+
     uow.commit().await?;
 
     get_order(ctx, &order_id).await
+}
+
+/// 開桌費 / お通し / テーブルチャージ：開檯時自動點上 N 份。
+///
+/// # 為什麼是一行明細，不是訂單上的一個欄位
+///
+/// 因為定價引擎把 `taxable_amount` 攤到每一行並保證 Σ **嚴格等於** `grand_total`
+/// —— 發票的品項加總要對得上總計，差一元整批退件。做成欄位的話，稅額拆分、
+/// 收據、分帳、報表四件事全部要重寫一遍。
+///
+/// 這也是市售產品的做法（Airレジ / ユビレジ / USEN / Eats365 / Loyverse
+/// 都是「一個普通商品 × 人數」），而且順便免費得到規格分級（大人 / 小孩）、
+/// 平日假日價、品項排行。
+///
+/// # 商品不見了的時候：**照樣開桌**
+///
+/// 開桌費商品被下架或刪掉時，這裡**跳過它並讓桌開起來**，而不是讓開檯失敗。
+/// 一台不能帶客人入座的收銀機是壞的；少收五十塊的開桌費是收銀員補點得回來的。
+/// 設定頁在存檔時就會擋掉不存在的商品，所以要走到這一步，必須是「先設好、
+/// 之後才把商品下架」——那已經是設定出了問題，而不是這一桌的問題。
+async fn add_cover_charge(
+    uow: &mut SqliteUow,
+    order_id: &str,
+    store: &StoreConfig,
+    guests: i64,
+    now: &Stamp,
+) -> AppResult<()> {
+    let Some(item_id) = store.cover_charge_item_id.as_ref() else {
+        return Ok(());
+    };
+    if guests <= 0 {
+        return Ok(());
+    }
+
+    let l = NewLine {
+        item_id: item_id.clone(),
+        variant_id: None,
+        qty_milli: Some(guests * QTY_SCALE),
+        modifier_ids: vec![],
+        note: None,
+    };
+    // 這裡不帶方案：開桌費不該因為這桌是吃到飽就變成 0 元。
+    // 兩者是分開的收費，日本的居酒屋放題也照收お通し。
+    let Ok(mut resolved) = resolve_line(uow, &l, None).await else {
+        return Ok(());
+    };
+    resolved.origin = crate::services::dining::LineOrigin::Cover;
+
+    insert_line(uow, order_id, 1, &l, &resolved, now).await?;
+
+    // 加了一行就得重算，否則畫面上的小計會是 0 而資料庫裡有一行 ——
+    // 而下一次 add_lines 才會把它補上，中間那段時間金額是錯的。
+    let totals = recompute(uow, order_id, store, Channel::DineIn, now).await?;
+    bump_order(uow, order_id, 0, "draft", &totals, now).await?;
+    Ok(())
 }
 
 /// 開桌。
@@ -332,7 +411,7 @@ async fn open_table_session(
     business_date: &BusinessDate,
     req: &OpenOrderReq,
     now: &Stamp,
-) -> AppResult<String> {
+) -> AppResult<(String, bool)> {
     // 已經開著的話沿用它（同一桌加點）。
     let existing: Option<String> = sqlx::query_scalar(
         "SELECT id FROM table_sessions WHERE table_id = ?1 AND status <> 'closed'",
@@ -341,7 +420,7 @@ async fn open_table_session(
     .fetch_optional(uow.conn())
     .await?;
     if let Some(id) = existing {
-        return Ok(id);
+        return Ok((id, false));
     }
 
     let session_id = Id::new().to_string();
@@ -361,7 +440,7 @@ async fn open_table_session(
     .await;
 
     match r {
-        Ok(_) => Ok(session_id),
+        Ok(_) => Ok((session_id, true)),
         Err(e) if is_unique_violation(&e) => Err(AppError::Conflict(
             "這一桌剛剛已經被開檯了，請重新整理後再試一次。".into(),
         )),
@@ -1877,25 +1956,24 @@ async fn load_order_view(uow: &mut SqliteUow, id: &str) -> AppResult<OrderView> 
 
     // 每人低消。單獨查一次而不是塞進上面那條 JOIN —— `stores` 只有一列，
     // 而把設定混進訂單查詢會讓「這個欄位到底屬於誰」變得看不出來。
-    let min_per_head: i64 =
-        sqlx::query_scalar("SELECT min_charge_per_head FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1")
-            .fetch_optional(uow.conn())
-            .await?
-            .unwrap_or(0);
+    let min_per_head: i64 = sqlx::query_scalar(
+        "SELECT min_charge_per_head FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1",
+    )
+    .fetch_optional(uow.conn())
+    .await?
+    .unwrap_or(0);
     let channel: String = r.get("channel");
     let guests: i64 = r.get("guest_count");
     let subtotal: i64 = r.get("subtotal");
     // 低消看的是**點了多少東西**（subtotal），不是最後收多少：
     // 服務費是店家加的、抹零是店家讓的，兩者都不該算進客人的消費額。
     // 而低消是桌位政策，外帶外送沒有這回事。
-    let min_charge_shortfall = if channel == channel_str(Channel::DineIn)
-        && min_per_head > 0
-        && guests > 0
-    {
-        (min_per_head * guests - subtotal).max(0)
-    } else {
-        0
-    };
+    let min_charge_shortfall =
+        if channel == channel_str(Channel::DineIn) && min_per_head > 0 && guests > 0 {
+            (min_per_head * guests - subtotal).max(0)
+        } else {
+            0
+        };
 
     Ok(OrderView {
         id: r.get("id"),

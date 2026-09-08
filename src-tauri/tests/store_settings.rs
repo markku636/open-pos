@@ -17,8 +17,8 @@ use open_pos::infra::db::sqlite::SqliteDb;
 use open_pos::paths::DataLayout;
 use open_pos::services::menu::{self, CategoryInput, ItemInput};
 use open_pos::services::order::{self, AddLinesReq, NewLine, OpenOrderReq, PaymentReq, SettleReq};
-use open_pos::services::table::{self, TableInput};
 use open_pos::services::store::{self, StoreInput};
+use open_pos::services::table::{self, TableInput};
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -77,6 +77,7 @@ async fn input_from_current(ctx: &Ctx) -> StoreInput {
         service_charge_rate_bp: s.service_charge_rate_bp,
         rounding_policy: s.rounding_policy,
         min_charge_per_head: s.min_charge_per_head,
+        cover_charge_item_id: s.cover_charge_item_id,
     }
 }
 
@@ -144,7 +145,10 @@ async fn a_bad_value_rejects_the_whole_request() {
     type Break = Box<dyn Fn(&mut StoreInput)>;
 
     let cases: Vec<(&str, Break)> = vec![
-        ("店名空白", Box::new(|i: &mut StoreInput| i.name = "   ".into())),
+        (
+            "店名空白",
+            Box::new(|i: &mut StoreInput| i.name = "   ".into()),
+        ),
         // 多打一個零：500 → 5000。症狀是每張單多收 45%，而收銀員不會知道為什麼。
         (
             "稅率超過 100%",
@@ -521,4 +525,177 @@ async fn a_minimum_spend_never_applies_to_takeout() {
     .unwrap();
 
     assert_eq!(o.min_charge_shortfall, 0, "外帶沒有低消");
+}
+
+// ───────────────────────────────── 開桌費 / お通し
+
+/// 建一張桌與一個「開桌費 $50」商品，並把它設成開桌費。
+async fn shop_with_cover_charge(e: &Env, price: i64) -> (String, String) {
+    let c = menu::upsert_category(
+        &e.ctx,
+        CategoryInput {
+            id: None,
+            name: "其他".into(),
+            color: None,
+            sort_order: None,
+            is_active: None,
+        },
+    )
+    .await
+    .unwrap();
+    let cover = menu::upsert_item(
+        &e.ctx,
+        ItemInput {
+            id: None,
+            category_id: Some(c.id),
+            name: "開桌費".into(),
+            short_name: None,
+            base_price: price,
+            tax_code: None,
+            is_open_price: None,
+            sold_out_until: None,
+            sort_order: None,
+            is_active: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut input = input_from_current(&e.ctx).await;
+    input.cover_charge_item_id = Some(cover.id.clone());
+    store::update(&e.ctx, input).await.unwrap();
+
+    let table_id = table::upsert_table(
+        &e.ctx,
+        TableInput {
+            id: None,
+            code: "A1".into(),
+            name: None,
+            seats: Some(4),
+            area_name: None,
+            is_active: None,
+        },
+    )
+    .await
+    .unwrap()
+    .id;
+
+    (cover.id, table_id)
+}
+
+async fn open_dine_in(
+    e: &Env,
+    table_id: &str,
+    guests: i64,
+) -> open_pos::services::order::OrderView {
+    order::open_order(
+        &e.ctx,
+        OpenOrderReq {
+            channel: Channel::DineIn,
+            table_id: Some(table_id.into()),
+            guest_count: Some(guests),
+            client_id: None,
+        },
+    )
+    .await
+    .unwrap()
+}
+
+/// ★ 開桌費是**一行明細 × 人數**，不是訂單上的一個欄位。
+///
+/// 做成一行才免費得到稅額拆分、收據、分帳、品項排行；做成欄位的話那四件事
+/// 全部要重寫，而且 Σ 各行 == 總額這條發票硬檢核會當場破掉。
+#[tokio::test]
+async fn seating_a_table_charges_the_cover_once_per_head() {
+    let e = env("cover").await;
+    let (_cover_id, table_id) = shop_with_cover_charge(&e, 50).await;
+
+    let o = open_dine_in(&e, &table_id, 3).await;
+
+    assert_eq!(o.lines.len(), 1, "開檯就該有開桌費那一行");
+    assert_eq!(o.lines[0].name, "開桌費");
+    assert_eq!(o.lines[0].qty_milli, 3000, "3 個人 = 3 份");
+    assert_eq!(o.subtotal, 150);
+    assert_eq!(o.grand_total, 150);
+    // 這條是財政部的硬檢核，加了一行之後也必須成立。
+    assert_eq!(o.sales_amount + o.tax_amount, o.grand_total);
+    // 各行加總要等於總額，否則發票的品項對不上總計。
+    assert_eq!(o.lines.iter().map(|l| l.amount).sum::<i64>(), o.grand_total);
+}
+
+/// **同一桌加點不會再收一次開桌費。**
+///
+/// 這是最容易寫錯、也最容易變成客訴的一條：收銀員在同一桌按第二次「加點」，
+/// 收據上就多了一筆 $150。所以「開桌費」綁的是**開檯**，不是「開單」。
+#[tokio::test]
+async fn adding_to_the_same_table_does_not_charge_the_cover_again() {
+    let e = env("cover_twice").await;
+    let (_cover_id, table_id) = shop_with_cover_charge(&e, 50).await;
+
+    let first = open_dine_in(&e, &table_id, 2).await;
+    assert_eq!(first.subtotal, 100);
+
+    // 同一桌再開一張單（加點時會走到同一條路）。
+    let second = open_dine_in(&e, &table_id, 2).await;
+    assert_eq!(second.lines.len(), 0, "第二張單不該再有開桌費");
+    assert_eq!(second.subtotal, 0);
+}
+
+/// 外帶沒有桌，也就沒有開桌費。
+#[tokio::test]
+async fn takeout_never_pays_a_cover_charge() {
+    let e = env("cover_takeout").await;
+    let (_cover_id, _table_id) = shop_with_cover_charge(&e, 50).await;
+
+    let o = order::open_order(
+        &e.ctx,
+        OpenOrderReq {
+            channel: Channel::Takeout,
+            table_id: None,
+            guest_count: None,
+            client_id: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(o.lines.len(), 0);
+    assert_eq!(o.grand_total, 0);
+}
+
+/// ★ 開桌費商品被下架了，**桌還是要開得起來**。
+///
+/// 一台不能帶客人入座的收銀機是壞的；少收五十塊是收銀員補點得回來的。
+/// 這個取捨要有測試釘住，否則哪天有人「順手」把它改成回傳錯誤，
+/// 症狀會是尖峰時段整間店開不了桌。
+#[tokio::test]
+async fn a_deleted_cover_item_does_not_stop_the_table_from_opening() {
+    let e = env("cover_gone").await;
+    let (cover_id, table_id) = shop_with_cover_charge(&e, 50).await;
+
+    menu::delete_item(&e.ctx, cover_id).await.unwrap();
+
+    let o = open_dine_in(&e, &table_id, 4).await;
+    assert_eq!(o.lines.len(), 0, "商品沒了就不收，但桌要開起來");
+    assert_eq!(o.grand_total, 0);
+}
+
+/// 設定頁存檔時就要擋掉不存在的商品。
+///
+/// 因為這個設定的效果要到「下一次有客人入座」才看得到 —— 中間可能隔了
+/// 好幾個小時，沒有人會把「昨天改的設定」跟「今天開不出開桌費」連起來。
+#[tokio::test]
+async fn a_cover_item_that_does_not_exist_is_rejected_at_save_time() {
+    let e = env("cover_bad").await;
+
+    let mut input = input_from_current(&e.ctx).await;
+    input.cover_charge_item_id = Some("01JQZZZZZZZZZZZZZZZZZZZZZZ".into());
+    let err = store::update(&e.ctx, input).await.unwrap_err();
+    assert!(matches!(err, AppError::Validation(_)), "{err:?}");
+
+    // 空字串 = 不收，不是錯誤。HTML 的 select 沒有 null。
+    let mut input = input_from_current(&e.ctx).await;
+    input.cover_charge_item_id = Some("".into());
+    let s = store::update(&e.ctx, input).await.unwrap();
+    assert_eq!(s.cover_charge_item_id, None);
 }

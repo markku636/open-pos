@@ -1371,6 +1371,10 @@ export interface Store {
   roundingPolicy: 'none' | 'to_five' | 'floor_five' | 'floor_ten'
   /** 每人低消。**只用來提醒，不會自動補一行差額。** */
   minChargePerHead: number
+  /** 開桌費 / お通し 的商品。開檯時自動點上「人數」份。null = 不收。 */
+  coverChargeItemId: string | null
+  /** 那個商品現在叫什麼、多少錢（`開桌費  $50`）。後端組好，前端不自己再查一次。 */
+  coverChargeLabel: string | null
 }
 
 export interface StoreInput {
@@ -1383,6 +1387,8 @@ export interface StoreInput {
   serviceChargeRateBp: number
   roundingPolicy: string
   minChargePerHead: number
+  /** 空字串或 null = 不收開桌費。 */
+  coverChargeItemId?: string | null
 }
 
 export const storeApi = {

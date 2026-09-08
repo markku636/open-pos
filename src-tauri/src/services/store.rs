@@ -55,13 +55,23 @@ pub struct StoreView {
     pub rounding_policy: String,
     /// 每人低消。**只用來提醒，不會自動補一行差額。**
     pub min_charge_per_head: i64,
+    /// 開桌費 / お通し 的商品。開檯時自動點上「人數」份。
+    ///
+    /// 只存商品不存金額 —— 金額是那個商品的售價，而它已經有規格、平日假日價、
+    /// 稅別、廚房分區一整套。詳見 `migrations/0012_cover_charge.sql`。
+    pub cover_charge_item_id: Option<String>,
+    /// 那個商品現在叫什麼、多少錢。畫面要顯示「開桌費 $50 / 人」，
+    /// 而讓前端自己再查一次商品是在等兩邊哪天顯示不一樣。
+    pub cover_charge_label: Option<String>,
 }
 
 pub async fn get(ctx: &Ctx) -> AppResult<StoreView> {
     let r = sqlx::query(
         "SELECT id, code, name, tax_id, address, phone, tz, business_day_cutoff,
                 currency, tax_rate_bp, service_charge_rate_bp, rounding_policy,
-                min_charge_per_head
+                min_charge_per_head, cover_charge_item_id,
+                (SELECT i.name || '  $' || i.base_price FROM items i
+                  WHERE i.id = stores.cover_charge_item_id) AS cover_charge_label
            FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1",
     )
     .fetch_optional(ctx.db.reader())
@@ -82,6 +92,8 @@ pub async fn get(ctx: &Ctx) -> AppResult<StoreView> {
         service_charge_rate_bp: r.get("service_charge_rate_bp"),
         rounding_policy: r.get("rounding_policy"),
         min_charge_per_head: r.get("min_charge_per_head"),
+        cover_charge_item_id: r.get("cover_charge_item_id"),
+        cover_charge_label: r.get("cover_charge_label"),
     })
 }
 
@@ -97,6 +109,9 @@ pub struct StoreInput {
     pub service_charge_rate_bp: i64,
     pub rounding_policy: String,
     pub min_charge_per_head: i64,
+    /// 開桌費商品。`None` 或空字串 = 不收開桌費。
+    #[serde(default)]
+    pub cover_charge_item_id: Option<String>,
 }
 
 pub async fn update(ctx: &Ctx, input: StoreInput) -> AppResult<StoreView> {
@@ -130,6 +145,31 @@ pub async fn update(ctx: &Ctx, input: StoreInput) -> AppResult<StoreView> {
     }
     validate_cutoff(&input.business_day_cutoff)?;
 
+    // 開桌費商品要真的存在而且還在賣。
+    //
+    // 擋在這裡的理由：這個設定的效果要到「下一次有客人入座」才看得到，
+    // 而那時錯的不是設定頁而是收銀機 —— 中間可能隔了好幾個小時，
+    // 沒有人會把兩件事連起來。空字串視為「不收」，因為 HTML 的 select
+    // 沒有 null，空值就是空字串。
+    let cover = input
+        .cover_charge_item_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(id) = cover {
+        let ok: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM items WHERE id = ?1 AND deleted_at IS NULL AND is_active = 1",
+        )
+        .bind(id)
+        .fetch_optional(ctx.db.reader())
+        .await?;
+        if ok.is_none() {
+            return Err(AppError::Validation(
+                "選的開桌費商品不存在或已經下架了".into(),
+            ));
+        }
+    }
+
     // 先讀舊值 —— 稽核要記「從什麼改成什麼」，只記新值的話
     // 事後看不出來到底動了哪一項。
     let current = get(ctx).await?;
@@ -141,19 +181,38 @@ pub async fn update(ctx: &Ctx, input: StoreInput) -> AppResult<StoreView> {
             SET name = ?1, tax_id = ?2, address = ?3, phone = ?4,
                 business_day_cutoff = ?5, tax_rate_bp = ?6,
                 service_charge_rate_bp = ?7, rounding_policy = ?8,
-                min_charge_per_head = ?9, updated_at = ?10
+                min_charge_per_head = ?9, cover_charge_item_id = ?11, updated_at = ?10
           WHERE id = (SELECT id FROM stores WHERE deleted_at IS NULL ORDER BY id LIMIT 1)",
     )
     .bind(input.name.trim())
-    .bind(input.tax_id.as_deref().map(str::trim).filter(|s| !s.is_empty()))
-    .bind(input.address.as_deref().map(str::trim).filter(|s| !s.is_empty()))
-    .bind(input.phone.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(
+        input
+            .tax_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    )
+    .bind(
+        input
+            .address
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    )
+    .bind(
+        input
+            .phone
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    )
     .bind(&input.business_day_cutoff)
     .bind(input.tax_rate_bp)
     .bind(input.service_charge_rate_bp)
     .bind(&input.rounding_policy)
     .bind(input.min_charge_per_head)
     .bind(now.iso())
+    .bind(cover)
     .execute(uow.conn())
     .await?;
     // 改設定是會被追究的事：三個月後有人問「為什麼六月的服務費是 5%」，
@@ -162,16 +221,27 @@ pub async fn update(ctx: &Ctx, input: StoreInput) -> AppResult<StoreView> {
     // ★ 寫在**同一個交易裡**：稽核寫失敗就整筆退回。
     //   這與 kanban 的做法刻意相反（那邊用 try/catch 吞掉稽核失敗）——
     //   會動到金額規則的設定，防弊優先於可用性。
-    let before = format!(
-        "稅率 {} / 服務費 {} / 抹零 {} / 低消 {}",
+    // 開桌費也要記：它會自動在每一桌加上一行金額，是這一頁裡最容易被
+    // 「誰改的？什麼時候改的？」問到的一項。
+    let describe = |tax: i64, service: i64, rounding: &str, min: i64, cover: Option<&str>| {
+        format!(
+            "稅率 {tax} / 服務費 {service} / 抹零 {rounding} / 低消 {min} / 開桌費 {}",
+            cover.unwrap_or("無")
+        )
+    };
+    let before = describe(
         current.tax_rate_bp,
         current.service_charge_rate_bp,
-        current.rounding_policy,
-        current.min_charge_per_head
+        &current.rounding_policy,
+        current.min_charge_per_head,
+        current.cover_charge_item_id.as_deref(),
     );
-    let after = format!(
-        "稅率 {} / 服務費 {} / 抹零 {} / 低消 {}",
-        input.tax_rate_bp, input.service_charge_rate_bp, input.rounding_policy, input.min_charge_per_head
+    let after = describe(
+        input.tax_rate_bp,
+        input.service_charge_rate_bp,
+        &input.rounding_policy,
+        input.min_charge_per_head,
+        cover,
     );
     crate::services::audit::write_in(
         &mut uow,
