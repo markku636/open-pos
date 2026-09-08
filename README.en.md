@@ -255,6 +255,69 @@ Once a machine is connected and configured, those tickets flow out on their own 
 
 ---
 
+## Buffet, a la carte, drinks shops
+
+![Buffet plan settings](docs/images/buffet-plan.webp)
+
+**A buffet is priced per person, so the plan itself is just an item**: the per-head
+charge is that item rung once per guest.
+
+That is not my invention. It is what 25 commercial products converge on, checked
+before writing any code: Airレジ's 放題プラン名商品, Smaregi's プラン and Eats365's
+"representing item" all work this way.
+
+Modelling it that way gets four things for free:
+
+* **Adult / child pricing** becomes two variants of that item, with no separate
+  tier system to configure
+* **Weekday / weekend pricing** uses the price rules that already exist
+* **Tax, split bills, receipts and reports** all apply automatically. The pricing
+  engine did not change by a single line.
+
+That last point is the one that matters. The engine allocates tax across **lines**
+and guarantees the per-line amounts sum exactly to the total, because an invoice
+whose item amounts do not add up to its total gets rejected. A per-head charge that
+is a line therefore travels the whole path for free. Had it been a field on the
+order, all four of those would have needed rewriting.
+
+### Ringing the plan item is what starts the buffet
+
+Ring "Dinner buffet x4" and the table is on the buffet. There is no separate
+"switch to buffet mode" button.
+
+Airレジ does the same, and it prevents an expensive mistake: **staff forget to
+switch the mode, every drink is charged at full price**, and the error surfaces in
+front of the customer.
+
+Items covered by the plan drop to zero but **stay on the ticket**, because the
+kitchen still needs to know to make two teas. Anything not covered is charged
+normally, which is exactly how premium extras work.
+
+### Time limits warn; they never surcharge or block
+
+Not one of the 25 products surveyed adds a charge when the limit is reached.
+Square and Clover only change colour, Smaregi pushes a notification to the handheld,
+Eats365 shows "OT". So this warns too, and nothing more.
+
+That is stated on the settings screen, because it is easy to assume a time limit
+means an automatic overtime charge, and that misunderstanding only surfaces after a
+table has sat for three hours with nothing on the bill.
+
+### Two things deliberately not built
+
+* **A store-level "service mode" switch.** Almost no product has one, and it cannot
+  express one table on a buffet while another is a la carte, which real shops need:
+  adults on the buffet, a child on a single kids' meal. Lunch-buffet-dinner-a-la-carte
+  is handled by the time-window rules that already exist.
+* **Automatic minimum-charge top-ups.** None of the five Japanese POS products has a
+  minimum charge at all, and the one Taiwanese vendor that advertises 低消 (minimum
+  spend) implements it as a reminder, not an automatic line. So this is a reminder too.
+
+The full survey, and the designs it overturned, are in
+**[docs/dining-modes.md](docs/dining-modes.md)**.
+
+---
+
 ## Tables and split bills
 
 ### Tables

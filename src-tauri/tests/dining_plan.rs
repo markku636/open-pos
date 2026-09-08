@@ -310,3 +310,87 @@ async fn a_table_without_a_plan_is_completely_unaffected() {
     // 紅茶在「方案的成員清單」裡，但這桌沒有套方案 → 原價 45。
     assert_eq!(v.grand_total, 45, "沒套方案就是原價，方案不該外溢");
 }
+
+/// ★ 點下去方案商品，這一桌就自動變成吃到飽 —— 不必先去別的畫面切換模式。
+///
+/// 這是 Airレジ 的做法，而它防的是一種很貴的失誤：店員忘了切換模式，
+/// 飲料全部照原價收，然後在客人面前發現金額不對。
+#[tokio::test]
+async fn ordering_the_plan_item_turns_the_table_into_a_buffet_by_itself() {
+    let e = env("auto").await;
+    let shop = seed_buffet(&e.ctx).await;
+
+    let order_id = open_at_table(&e.ctx, 2).await;
+    // 刻意**不**呼叫 apply_plan —— 就只是點餐。
+
+    let v = order::get_order(&e.ctx, &order_id).await.unwrap();
+    let v = order::add_lines(
+        &e.ctx,
+        AddLinesReq {
+            order_id: order_id.clone(),
+            expected_rev: v.rev,
+            // 同一批裡就有方案商品與方案內的飲料。
+            lines: vec![line(&shop.plan_item, 2), line(&shop.tea, 1)],
+        },
+    )
+    .await
+    .unwrap();
+
+    // 兩位 × 599，飲料因為方案已經生效所以是 0 元 —— 而方案是這一次點餐才綁上的。
+    assert_eq!(v.grand_total, 599 * 2, "點方案商品的當下就該生效");
+    assert_eq!(v.sales_amount + v.tax_amount, v.grand_total);
+
+    // 桌上真的記下了方案與計時起點。
+    let (plan_id, started): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT s.dining_plan_id, s.plan_started_at
+           FROM orders o JOIN table_sessions s ON s.id = o.table_session_id
+          WHERE o.id = ?1",
+    )
+    .bind(&order_id)
+    .fetch_one(e.ctx.db.reader())
+    .await
+    .unwrap();
+    assert_eq!(plan_id.as_deref(), Some(shop.plan_id.as_str()));
+    assert!(started.is_some(), "計時要從點方案那一刻開始");
+}
+
+/// 停用的方案不會被意外觸發。
+#[tokio::test]
+async fn a_disabled_plan_is_never_auto_applied() {
+    let e = env("disabled").await;
+    let shop = seed_buffet(&e.ctx).await;
+
+    // 老闆把方案停用了。
+    dining::upsert(
+        &e.ctx,
+        PlanInput {
+            id: Some(shop.plan_id.clone()),
+            item_id: shop.plan_item.clone(),
+            name: "晚餐吃到飽".into(),
+            limit_minutes: Some(120),
+            notice_minutes: Some(30),
+            print_members_on_bill: Some(false),
+            is_active: Some(false),
+            member_items: vec![],
+            member_categories: vec![],
+        },
+    )
+    .await
+    .unwrap();
+
+    let order_id = open_at_table(&e.ctx, 1).await;
+    let v = order::get_order(&e.ctx, &order_id).await.unwrap();
+    let v = order::add_lines(
+        &e.ctx,
+        AddLinesReq {
+            order_id,
+            expected_rev: v.rev,
+            lines: vec![line(&shop.plan_item, 1), line(&shop.tea, 1)],
+        },
+    )
+    .await
+    .unwrap();
+
+    // 方案沒生效 → 這一餐就是「一個 599 的餐點」加「一杯 45 的紅茶」。
+    assert_eq!(v.grand_total, 599 + 45, "停用的方案不該把飲料變成 0 元");
+}

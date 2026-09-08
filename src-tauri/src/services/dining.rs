@@ -148,6 +148,54 @@ async fn load_in(uow: &mut SqliteUow, plan_id: &str) -> AppResult<Option<DiningP
     }))
 }
 
+/// 這一批要加的品項裡，有沒有哪一個是某個方案的代表商品？
+///
+/// 有的話，點它就等於宣告「這桌吃到飽」（見 `order::add_lines` 的說明）。
+/// 只看**啟用中**的方案 —— 老闆停用了它就不該再被意外觸發。
+pub async fn plan_for_any_item(
+    uow: &mut SqliteUow,
+    lines: &[crate::services::order::NewLine],
+) -> AppResult<Option<DiningPlan>> {
+    for l in lines {
+        let found = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM dining_plans
+              WHERE item_id = ?1 AND deleted_at IS NULL AND is_active = 1",
+        )
+        .bind(&l.item_id)
+        .fetch_optional(uow.conn())
+        .await?;
+        if let Some(pid) = found {
+            return load_in(uow, &pid).await;
+        }
+    }
+    Ok(None)
+}
+
+/// 把方案綁到這張單所在的桌上，並開始計時。
+///
+/// 外帶沒有 session，所以綁不上 —— 那是對的：吃到飽本來就是內用的事，
+/// 而外帶那一份仍然會照方案商品的原價收錢（它就是一個 599 的便當）。
+pub async fn bind_to_order_session(
+    uow: &mut SqliteUow,
+    order_id: &str,
+    plan_id: &str,
+    now: &Stamp,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE table_sessions
+            SET dining_plan_id = ?2, plan_started_at = ?3, updated_at = ?3
+          WHERE id = (SELECT table_session_id FROM orders WHERE id = ?1)
+            AND status <> 'closed'
+            AND dining_plan_id IS NULL",
+    )
+    .bind(order_id)
+    .bind(plan_id)
+    .bind(now.iso())
+    .execute(uow.conn())
+    .await?;
+    Ok(())
+}
+
 /// 這一行的來源，決定收據怎麼印、報表怎麼算。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

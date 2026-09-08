@@ -383,7 +383,23 @@ pub async fn add_lines(ctx: &Ctx, req: AddLinesReq) -> AppResult<OrderView> {
 
     let mut line_no = next_line_no(&mut uow, &req.order_id).await?;
     // 這桌套用哪個吃到飽方案（沒有就是 None，一切照舊）。
-    let plan = crate::services::dining::active_plan_for_order(&mut uow, &req.order_id).await?;
+    //
+    // ★ 點下去方案商品，這一桌就自動變成吃到飽 —— 不需要另外一個「切換模式」的按鈕。
+    //
+    //   這是 Airレジ 的做法（方案靠點那個商品綁到桌上）。比一顆切換鈕好的地方在於：
+    //   店員本來就要點「晚餐吃到飽 ×4」，那一步同時就是宣告，少一個要記的步驟；
+    //   而且不會出現「忘了切換模式、飲料全部照原價收」這種在客人面前算錯錢的情況。
+    let mut plan = crate::services::dining::active_plan_for_order(&mut uow, &req.order_id).await?;
+    if plan.is_none() {
+        if let Some(p) =
+            crate::services::dining::plan_for_any_item(&mut uow, &req.lines).await?
+        {
+            crate::services::dining::bind_to_order_session(&mut uow, &req.order_id, &p.id, &now)
+                .await?;
+            plan = Some(p);
+        }
+    }
+    let plan = plan;
 
     let mut added: std::collections::HashSet<String> = Default::default();
     for l in &req.lines {
