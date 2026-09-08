@@ -45,6 +45,29 @@ pub struct TableSession {
     pub order_count: i64,
     /// 這一桌開了多久（秒）。翻桌率看的是它。
     pub seated_seconds: i64,
+    /// 這一桌套用的吃到飽方案（沒有就是 None）。
+    pub plan: Option<TablePlan>,
+}
+
+/// 桌上的吃到飽方案與它的倒數。
+///
+/// # 為什麼回「剩幾秒」而不是回到期時間讓前端自己算
+///
+/// 因為**時鐘的真相在後端**。收銀機、廚房平板、客人手機三台裝置的系統時間
+/// 不會完全一樣，而「還剩幾分鐘」是會被拿去跟客人講的數字 ——
+/// 三台講出不同答案比慢一點更糟。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePlan {
+    pub id: String,
+    pub name: String,
+    /// 0 = 不限時。
+    pub limit_minutes: i64,
+    /// 提前多久變黃。
+    pub notice_minutes: i64,
+    /// 還剩幾秒。**負數代表已經超時**（不是 0）——
+    /// 超時多久是店員要知道的事，夾成 0 就看不出來了。
+    pub remaining_seconds: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,11 +87,15 @@ pub async fn list_tables(ctx: &Ctx) -> AppResult<Vec<TableView>> {
     let now = Stamp::now();
     let rows = sqlx::query(
         "SELECT t.id, t.code, t.name, t.seats, t.is_active, a.name AS area_name,
-                s.id AS session_id, s.guest_count, s.opened_at
+                s.id AS session_id, s.guest_count, s.opened_at,
+                s.plan_started_at,
+                p.id AS plan_id, p.name AS plan_name,
+                p.limit_minutes, p.notice_minutes
            FROM dining_tables t
            LEFT JOIN areas a ON a.id = t.area_id AND a.deleted_at IS NULL
            LEFT JOIN table_sessions s
                   ON s.table_id = t.id AND s.status <> 'closed'
+           LEFT JOIN dining_plans p ON p.id = s.dining_plan_id
           WHERE t.deleted_at IS NULL
           ORDER BY a.sort_order, t.code",
     )
@@ -90,7 +117,33 @@ pub async fn list_tables(ctx: &Ctx) -> AppResult<Vec<TableView>> {
                 .fetch_one(ctx.db.reader())
                 .await?;
                 let opened_at: String = r.get("opened_at");
+                // 倒數從**點方案那一刻**算，不是從入座算 ——
+                // 客人常常先坐下看菜單再決定要不要吃到飽。
+                let plan_id: Option<String> = r.get("plan_id");
+                let plan = plan_id.map(|pid| {
+                    let limit: i64 = r.get("limit_minutes");
+                    let started: Option<String> = r.get("plan_started_at");
+                    let elapsed = started
+                        .as_deref()
+                        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                        .map(|t| {
+                            (now.at - t.with_timezone(&chrono::Utc))
+                                .num_seconds()
+                                .max(0)
+                        })
+                        .unwrap_or(0);
+                    TablePlan {
+                        id: pid,
+                        name: r.get("plan_name"),
+                        limit_minutes: limit,
+                        notice_minutes: r.get("notice_minutes"),
+                        // 不限時（0）的話剩餘時間沒有意義，回 0 讓前端不顯示倒數。
+                        remaining_seconds: if limit > 0 { limit * 60 - elapsed } else { 0 },
+                    }
+                });
+
                 Some(TableSession {
+                    plan,
                     seated_seconds: chrono::DateTime::parse_from_rfc3339(&opened_at)
                         .map(|t| {
                             (now.at - t.with_timezone(&chrono::Utc))

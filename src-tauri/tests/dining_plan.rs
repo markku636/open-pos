@@ -394,3 +394,101 @@ async fn a_disabled_plan_is_never_auto_applied() {
     // 方案沒生效 → 這一餐就是「一個 599 的餐點」加「一杯 45 的紅茶」。
     assert_eq!(v.grand_total, 599 + 45, "停用的方案不該把飲料變成 0 元");
 }
+
+/// 桌位圖要看得到剩餘時間，而且**超時要看得出超了多久**。
+///
+/// 到期只提醒 —— 查過的 25 套產品沒有一套會自動加價或擋單，
+/// 所以這裡只驗數字，不驗任何金額變化。
+#[tokio::test]
+async fn a_buffet_table_reports_its_remaining_time_and_goes_negative_when_over() {
+    use open_pos::services::table;
+
+    let e = env("timer").await;
+    let shop = seed_buffet(&e.ctx).await;
+    let order_id = open_at_table(&e.ctx, 2).await;
+    apply_plan(&e.ctx, &order_id, &shop.plan_id).await;
+
+    let seated = table::list_tables(&e.ctx)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.session.is_some())
+        .expect("應該有一桌在使用中");
+    let plan = seated.session.unwrap().plan.expect("這桌套了方案");
+
+    assert_eq!(plan.limit_minutes, 120);
+    assert_eq!(plan.notice_minutes, 30);
+    // 剛套上，剩餘時間應該接近整個時限。
+    assert!(
+        plan.remaining_seconds > 119 * 60 && plan.remaining_seconds <= 120 * 60,
+        "剛開始應該剩快兩小時，實際 {}",
+        plan.remaining_seconds
+    );
+
+    // 把計時起點往回撥到三小時前 —— 已經超時一小時。
+    let long_ago = (chrono::Utc::now() - chrono::Duration::hours(3)).to_rfc3339();
+    let mut uow = e.ctx.db.begin_write().await.unwrap();
+    sqlx::query("UPDATE table_sessions SET plan_started_at = ?1 WHERE dining_plan_id IS NOT NULL")
+        .bind(&long_ago)
+        .execute(uow.conn())
+        .await
+        .unwrap();
+    uow.commit().await.unwrap();
+
+    let plan = table::list_tables(&e.ctx)
+        .await
+        .unwrap()
+        .into_iter()
+        .find_map(|t| t.session.and_then(|s| s.plan))
+        .unwrap();
+
+    // ★ 超時是**負數**而不是夾成 0：超了五分鐘還是一小時，店員要分得出來。
+    assert!(
+        plan.remaining_seconds < 0,
+        "超時應該是負數，實際 {}",
+        plan.remaining_seconds
+    );
+    let over_minutes = -plan.remaining_seconds / 60;
+    assert!(
+        (55..=65).contains(&over_minutes),
+        "應該超時約 60 分鐘，實際 {over_minutes}"
+    );
+}
+
+/// 不限時的方案不該顯示倒數。
+#[tokio::test]
+async fn an_unlimited_plan_reports_no_countdown() {
+    use open_pos::services::table;
+
+    let e = env("nolimit").await;
+    let shop = seed_buffet(&e.ctx).await;
+
+    dining::upsert(
+        &e.ctx,
+        PlanInput {
+            id: Some(shop.plan_id.clone()),
+            item_id: shop.plan_item.clone(),
+            name: "午餐吃到飽（不限時）".into(),
+            limit_minutes: Some(0),
+            notice_minutes: Some(0),
+            print_members_on_bill: Some(false),
+            is_active: Some(true),
+            member_items: vec![],
+            member_categories: vec![],
+        },
+    )
+    .await
+    .unwrap();
+
+    let order_id = open_at_table(&e.ctx, 2).await;
+    apply_plan(&e.ctx, &order_id, &shop.plan_id).await;
+
+    let plan = table::list_tables(&e.ctx)
+        .await
+        .unwrap()
+        .into_iter()
+        .find_map(|t| t.session.and_then(|s| s.plan))
+        .unwrap();
+    assert_eq!(plan.limit_minutes, 0);
+    assert_eq!(plan.remaining_seconds, 0, "不限時就不該有倒數");
+}

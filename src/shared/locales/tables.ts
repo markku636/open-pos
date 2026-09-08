@@ -98,4 +98,13 @@ export const tables = {
   guests: { 'zh-TW': '幾位？', en: 'How many guests?', ja: '何名様ですか？' },
   otherCount: { 'zh-TW': '其他人數', en: 'Other count', ja: 'その他の人数' },
   confirm: { 'zh-TW': '確定', en: 'OK', ja: '確定' },
+
+  /**
+   * 吃到飽的桌子顯示剩餘時間。
+   *
+   * 超時是**分開的一句**而不是負數的剩餘時間：「-15 分鐘」要多想一秒，
+   * 而店員是在走過去的路上瞄一眼的。
+   */
+  remaining: { 'zh-TW': '剩 {n} 分', en: '{n} min left', ja: '残り {n} 分' },
+  overBy: { 'zh-TW': '超時 {n} 分', en: '{n} min over', ja: '{n} 分超過' },
 } satisfies Catalog

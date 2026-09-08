@@ -822,6 +822,24 @@ export const kdsApi = {
 
 // ---------------------------------------------------------------- 桌位
 
+/**
+ * 桌上的吃到飽方案與倒數。
+ *
+ * `remainingSeconds` 由**後端**算好，前端不自己拿系統時間減 ——
+ * 收銀機、廚房平板、客人手機的時鐘不會完全一樣，而「還剩幾分鐘」
+ * 是會拿去跟客人講的數字，三台講出不同答案比慢一點更糟。
+ */
+export interface TablePlan {
+  id: string;
+  name: string;
+  /** 0 = 不限時。 */
+  limitMinutes: number;
+  /** 提前多久變黃。 */
+  noticeMinutes: number;
+  /** 還剩幾秒。**負數代表已經超時。** */
+  remainingSeconds: number;
+}
+
 export interface TableSession {
   id: string;
   guestCount: number;
@@ -830,6 +848,8 @@ export interface TableSession {
   total: number;
   orderCount: number;
   seatedSeconds: number;
+  /** 套用中的吃到飽方案（沒有就是 null）。 */
+  plan: TablePlan | null;
 }
 
 export interface DiningTable {

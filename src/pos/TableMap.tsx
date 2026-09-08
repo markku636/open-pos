@@ -249,15 +249,35 @@ function TableCard({
   const t = useT()
   const s = table.session
   const mins = s ? Math.floor(s.seatedSeconds / 60) : 0
-  // 顏色只表達一件事：這桌坐多久了。九十分鐘以上通常代表該去看一下 ——
-  // 不是催客人，是「這桌可能已經吃完但還沒結帳」。
-  const tone = !s
-    ? 'border-slate-800 bg-slate-900/50 hover:border-slate-600'
-    : mins >= 120
-      ? 'border-red-700 bg-red-950/30 hover:border-red-500'
-      : mins >= 90
-        ? 'border-amber-700 bg-amber-950/20 hover:border-amber-500'
-        : 'border-emerald-800 bg-emerald-950/20 hover:border-emerald-600'
+
+  // 吃到飽的桌子看的是**剩餘時間**，用方案自己的門檻；一般桌子看坐了多久。
+  //
+  // 這是市售產品的一致做法（USEN：「終了前注意時間で黄色、時間経過すると赤色」、
+  // Eats365 進度條綠→黃、超時顯示 OT）。而**到期只變顏色** ——
+  // 查過的 25 套產品沒有一套會自動加價或擋單。
+  const timed = s?.plan && s.plan.limitMinutes > 0 ? s.plan : null
+  const level: 'free' | 'ok' | 'warn' | 'over' = !s
+    ? 'free'
+    : timed
+      ? timed.remainingSeconds <= 0
+        ? 'over'
+        : timed.remainingSeconds <= timed.noticeMinutes * 60
+          ? 'warn'
+          : 'ok'
+      : // 沒有方案的桌子沿用原本的規則：九十分鐘該去看一下 ——
+        // 不是催客人，是「這桌可能已經吃完但還沒結帳」。
+        mins >= 120
+        ? 'over'
+        : mins >= 90
+          ? 'warn'
+          : 'ok'
+
+  const tone = {
+    free: 'border-slate-800 bg-slate-900/50 hover:border-slate-600',
+    ok: 'border-emerald-800 bg-emerald-950/20 hover:border-emerald-600',
+    warn: 'border-amber-700 bg-amber-950/20 hover:border-amber-500',
+    over: 'border-red-700 bg-red-950/30 hover:border-red-500',
+  }[level]
 
   return (
     <div className={`rounded-lg border-2 ${tone} transition`}>
@@ -280,11 +300,33 @@ function TableCard({
               <span className="text-lg font-semibold text-sky-300">
                 {formatMoney(s.total)}
               </span>
-              <span className="font-mono text-sm text-slate-400">
-                {t(tablesMsg.minutes, { n: mins })}
+              <span
+                className={`font-mono text-sm ${
+                  level === 'over'
+                    ? 'text-red-300'
+                    : level === 'warn'
+                      ? 'text-amber-300'
+                      : 'text-slate-400'
+                }`}
+              >
+                {timed
+                  ? timed.remainingSeconds <= 0
+                    ? // 超時多久要看得出來，夾成 0 的話店員不知道超了五分鐘還是一小時。
+                      t(tablesMsg.overBy, {
+                        n: Math.ceil(-timed.remainingSeconds / 60),
+                      })
+                    : t(tablesMsg.remaining, {
+                        n: Math.ceil(timed.remainingSeconds / 60),
+                      })
+                  : t(tablesMsg.minutes, { n: mins })}
               </span>
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
+              {s.plan && (
+                <span className="mr-1.5 rounded bg-sky-900/60 px-1 py-0.5 text-sky-300">
+                  {s.plan.name}
+                </span>
+              )}
               {t(tablesMsg.seatedInfo, { n: s.guestCount, time: hhmm(s.openedAt) })}
               {s.orderCount > 1 && ` · ${t(tablesMsg.orders, { n: s.orderCount })}`}
             </div>

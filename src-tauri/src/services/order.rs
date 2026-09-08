@@ -391,9 +391,7 @@ pub async fn add_lines(ctx: &Ctx, req: AddLinesReq) -> AppResult<OrderView> {
     //   而且不會出現「忘了切換模式、飲料全部照原價收」這種在客人面前算錯錢的情況。
     let mut plan = crate::services::dining::active_plan_for_order(&mut uow, &req.order_id).await?;
     if plan.is_none() {
-        if let Some(p) =
-            crate::services::dining::plan_for_any_item(&mut uow, &req.lines).await?
-        {
+        if let Some(p) = crate::services::dining::plan_for_any_item(&mut uow, &req.lines).await? {
             crate::services::dining::bind_to_order_session(&mut uow, &req.order_id, &p.id, &now)
                 .await?;
             plan = Some(p);
