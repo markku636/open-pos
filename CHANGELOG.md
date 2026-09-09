@@ -6,6 +6,11 @@
 ## [Unreleased]
 
 ### Added
+- 「關於」對話框的 PayPal 贊助段：四個固定金額（US$5 / 10 / 15 / 25）各一顆按鈕
+  加「其他金額」走 PayPal.Me，三種介面語言都有譯文，連結一律以系統瀏覽器開啟。
+  刻意不做成一條「隨意」連結——「隨意」把「要不要贊助」變成「該給多少才不失禮」，
+  而後者要想，想了就關掉了。連結收在 `src/shared/donate.ts` 單一來源，
+  與 README 的贊助段、`.github/FUNDING.yml` 同一組
 - 專案骨架：Tauri 2 + Rust + React 18 + Vite 5 + Tailwind 3
 - SQLite 雙連線池（writer=1 / reader=N）與 `UnitOfWork` 交易邊界
 - 開機安全檢查：單實例檔案鎖、網路磁碟與雲端同步資料夾拒絕啟動、WAL 模式驗證

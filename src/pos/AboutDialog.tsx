@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api, transport, type AppInfo } from '@/shared/api'
 import { APP_NAME, REPO, TOOL_PAGE_URL } from '@/shared/brand'
+import { DONATE_TIERS, PAYPAL_ME_URL } from '@/shared/donate'
 import { useT } from '@/shared/i18n'
 import { ui } from '@/shared/locales/nav'
 import { system } from '@/shared/locales/system'
@@ -186,6 +187,35 @@ export default function AboutDialog({
             ))}
           </div>
 
+          {/*
+            贊助。排在連結列之後、授權行之前 —— 會翻到「關於」的人是為了查版本或
+            找回報入口，那些事辦完了才輪得到「這東西幫了我」。
+            四個固定金額直接是四顆按鈕（見 donate.ts：不寫「隨意」）。
+          */}
+          <div className="mt-4 w-full border-t border-slate-800 pt-3">
+            <div className="text-[13px] text-slate-400">{t(system.donateBlurb)}</div>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+              {DONATE_TIERS.map((tier) => (
+                <button
+                  type="button"
+                  key={tier.usd}
+                  onClick={() => openUrl(tier.url)}
+                  title={t(system.donateTier, { usd: tier.usd })}
+                  className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-[13px] text-slate-300 tabular-nums hover:border-sky-500/50 hover:text-sky-400"
+                >
+                  <IconHeart />${tier.usd}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => openUrl(PAYPAL_ME_URL)}
+                className="rounded px-2 py-1 text-[13px] text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+              >
+                {t(system.donateOther)}
+              </button>
+            </div>
+          </div>
+
           <div className="mt-3 text-[11px] text-slate-600">{t(system.license)}</div>
         </div>
 
@@ -249,6 +279,12 @@ function IconBook() {
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
     </>,
+  )
+}
+
+function IconHeart() {
+  return svg(
+    <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />,
   )
 }
 

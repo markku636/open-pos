@@ -82,6 +82,22 @@ export const system = {
     ja: 'MITライセンス · Tauri + React 製',
   },
 
+  // 贊助。這一段是**寫給老闆看的**，不是給店員 ——「關於」在收銀機上是設定頁裡的
+  // 一個角落，翻到這裡的人已經是會去找版本號、會去回報問題的那一位。
+  // 所以文案講的是「省下的時間」而不是「支持我們」：前者他今天剛體驗過。
+  donateBlurb: {
+    'zh-TW': '這個工具免費且開源。如果它幫你省下時間，可以請我喝杯咖啡。',
+    en: 'This tool is free and open source. If it saved you time, buy me a coffee.',
+    ja: 'このツールは無料のオープンソースです。時間の節約になったなら、コーヒーを一杯おごってください。',
+  },
+  // 金額按鈕的 tooltip。`{usd}` 是數字，`US$` 三種語言一致，只有語序要換。
+  donateTier: {
+    'zh-TW': '以 PayPal 贊助 US${usd}',
+    en: 'Donate US${usd} via PayPal',
+    ja: 'PayPal で US${usd} を寄付する',
+  },
+  donateOther: { 'zh-TW': '其他金額', en: 'Other amount', ja: 'その他の金額' },
+
   // ─── 區網連線 ─────────────────────────────────
   lanFailed: {
     'zh-TW': '查不到區網狀態：{msg}',
